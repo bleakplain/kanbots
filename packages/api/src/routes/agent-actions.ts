@@ -222,6 +222,33 @@ export function agentActionsRouter(deps: AgentActionsDeps): Router {
     }
   });
 
+  router.post('/issues/:n/archive', async (req, res) => {
+    const n = issueNumberSchema.parse(req.params.n);
+    try {
+      const thread = findThreadForIssue(deps.store, n);
+      if (thread) {
+        const runs = deps.store.agentRuns
+          .listByThread(thread.id)
+          .filter((r) => r.status === 'starting' || r.status === 'running' || r.status === 'awaiting_input');
+        for (const run of runs) {
+          await deps.supervisor.stop(run.id);
+        }
+      }
+      const issue = await deps.source.getIssue(n);
+      const labels = issue.labels.filter(
+        (l) => !l.startsWith('status:') && !l.startsWith('agent:') && l !== 'archived',
+      );
+      labels.push('archived');
+      const updated = await deps.source.updateIssue(n, { labels, state: 'closed' });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({
+        error: 'ArchiveFailed',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   router.post('/issues/:n/pr/request-changes', async (req, res) => {
     const n = issueNumberSchema.parse(req.params.n);
     try {

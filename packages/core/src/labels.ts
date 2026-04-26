@@ -2,6 +2,7 @@ import type { Label } from './types.js';
 
 export const STATUS_PREFIX = 'status:' as const;
 export const AGENT_PREFIX = 'agent:' as const;
+export const ARCHIVED_LABEL = 'archived' as const;
 
 export const STATUS_LABELS = {
   backlog: { name: 'status:backlog', color: 'cccccc', description: 'In the backlog' },
