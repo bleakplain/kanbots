@@ -1,5 +1,5 @@
 import type { Db } from '../db.js';
-import type { AgentRun, AgentRunId, AgentRunStatus, ThreadId } from '../types.js';
+import type { AgentRun, AgentRunId, AgentRunStatus, PreviewState, ThreadId } from '../types.js';
 
 interface AgentRunRow {
   id: number;
@@ -13,6 +13,13 @@ interface AgentRunRow {
   token_usage_input: number | null;
   token_usage_output: number | null;
   exit_reason: string | null;
+  session_id: string | null;
+  model: string | null;
+  total_cost_usd: number | null;
+  duration_ms: number | null;
+  preview_url: string | null;
+  preview_state: string | null;
+  preview_pid: number | null;
 }
 
 function rowToAgentRun(row: AgentRunRow): AgentRun {
@@ -28,6 +35,13 @@ function rowToAgentRun(row: AgentRunRow): AgentRun {
     tokenUsageInput: row.token_usage_input,
     tokenUsageOutput: row.token_usage_output,
     exitReason: row.exit_reason,
+    sessionId: row.session_id,
+    model: row.model,
+    totalCostUsd: row.total_cost_usd,
+    durationMs: row.duration_ms,
+    previewUrl: row.preview_url,
+    previewState: (row.preview_state as PreviewState | null) ?? null,
+    previewPid: row.preview_pid,
   };
 }
 
@@ -47,6 +61,13 @@ export interface UpdateAgentRunPatch {
   tokenUsageInput?: number | null;
   tokenUsageOutput?: number | null;
   exitReason?: string | null;
+  sessionId?: string | null;
+  model?: string | null;
+  totalCostUsd?: number | null;
+  durationMs?: number | null;
+  previewUrl?: string | null;
+  previewState?: PreviewState | null;
+  previewPid?: number | null;
 }
 
 const PATCH_COLUMNS: Record<keyof UpdateAgentRunPatch, string> = {
@@ -58,6 +79,13 @@ const PATCH_COLUMNS: Record<keyof UpdateAgentRunPatch, string> = {
   tokenUsageInput: 'token_usage_input',
   tokenUsageOutput: 'token_usage_output',
   exitReason: 'exit_reason',
+  sessionId: 'session_id',
+  model: 'model',
+  totalCostUsd: 'total_cost_usd',
+  durationMs: 'duration_ms',
+  previewUrl: 'preview_url',
+  previewState: 'preview_state',
+  previewPid: 'preview_pid',
 };
 
 const ACTIVE_STATUSES = "('starting', 'running', 'awaiting_input')";
@@ -90,6 +118,13 @@ export class AgentRunsRepo {
       tokenUsageInput: null,
       tokenUsageOutput: null,
       exitReason: null,
+      sessionId: null,
+      model: null,
+      totalCostUsd: null,
+      durationMs: null,
+      previewUrl: null,
+      previewState: null,
+      previewPid: null,
     };
   }
 
@@ -140,10 +175,34 @@ export class AgentRunsRepo {
 
   listOrphans(): AgentRun[] {
     const rows = this.db
-      .prepare(
-        `SELECT * FROM agent_runs WHERE status IN ${ACTIVE_STATUSES} AND pid IS NOT NULL`,
-      )
+      .prepare(`SELECT * FROM agent_runs WHERE status IN ${ACTIVE_STATUSES} AND pid IS NOT NULL`)
       .all() as AgentRunRow[];
     return rows.map(rowToAgentRun);
+  }
+
+  sumCostSince(isoDate: string): number {
+    const row = this.db
+      .prepare(
+        'SELECT COALESCE(SUM(total_cost_usd), 0) AS sum FROM agent_runs WHERE started_at >= ?',
+      )
+      .get(isoDate) as { sum: number };
+    return row.sum;
+  }
+
+  listActiveForRepo(repoOwner: string, repoName: string): Array<AgentRun & { issueNumber: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT ar.*, t.issue_number AS issue_number_alias
+         FROM agent_runs ar
+         JOIN threads t ON ar.thread_id = t.id
+         WHERE t.repo_owner = ? AND t.repo_name = ?
+           AND ar.status IN ${ACTIVE_STATUSES}
+         ORDER BY ar.id`,
+      )
+      .all(repoOwner, repoName) as Array<AgentRunRow & { issue_number_alias: number }>;
+    return rows.map((row) => ({
+      ...rowToAgentRun(row),
+      issueNumber: row.issue_number_alias,
+    }));
   }
 }

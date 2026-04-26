@@ -5,9 +5,9 @@ import { makeTestApp } from './helpers/make-app.js';
 
 describe('GET /api/issues/:n', () => {
   it('returns issue + comments + null thread when no thread exists', async () => {
-    const { app, client } = makeTestApp();
-    client.setIssue(issueFixture(7, 'lucky', { labels: ['status:todo'] }));
-    client.setComments(7, [commentFixture(101, 'first comment')]);
+    const { app, source } = makeTestApp();
+    source.setIssue(issueFixture(7, 'lucky', { labels: ['status:todo'] }));
+    source.setComments(7, [commentFixture(101, 'first comment')]);
 
     const res = await request(app).get('/api/issues/7');
     expect(res.status).toBe(200);
@@ -20,9 +20,9 @@ describe('GET /api/issues/:n', () => {
   });
 
   it('includes thread payload when one exists', async () => {
-    const { app, client, store } = makeTestApp();
-    client.setIssue(issueFixture(7, 'lucky'));
-    client.setComments(7, []);
+    const { app, source, store } = makeTestApp();
+    source.setIssue(issueFixture(7, 'lucky'));
+    source.setComments(7, []);
 
     const t = store.threads.create({ repoOwner: 'octo', repoName: 'hello', issueNumber: 7 });
     store.messages.create({ threadId: t.id, role: 'user', body: 'kick off' });
@@ -38,9 +38,9 @@ describe('GET /api/issues/:n', () => {
   });
 
   it('surfaces an active agent run when present', async () => {
-    const { app, client, store } = makeTestApp();
-    client.setIssue(issueFixture(7, 'lucky'));
-    client.setComments(7, []);
+    const { app, source, store } = makeTestApp();
+    source.setIssue(issueFixture(7, 'lucky'));
+    source.setComments(7, []);
 
     const t = store.threads.create({ repoOwner: 'octo', repoName: 'hello', issueNumber: 7 });
     const run = store.agentRuns.create({ threadId: t.id });
@@ -52,9 +52,9 @@ describe('GET /api/issues/:n', () => {
   });
 
   it('thread is per-(owner, repo, issue) — does not leak across repos', async () => {
-    const { app, client, store } = makeTestApp();
-    client.setIssue(issueFixture(7, 'lucky'));
-    client.setComments(7, []);
+    const { app, source, store } = makeTestApp();
+    source.setIssue(issueFixture(7, 'lucky'));
+    source.setComments(7, []);
 
     // A thread for a *different* repo at the same issue number must NOT show up.
     const otherT = store.threads.create({

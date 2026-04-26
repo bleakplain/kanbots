@@ -51,6 +51,10 @@ export interface Card<P = unknown> {
   resolvedAt: string | null;
 }
 
+export type CheckKind = 'typecheck' | 'tests' | 'lint' | 'e2e';
+export type CheckStatus = 'idle' | 'running' | 'pass' | 'fail';
+export type PreviewState = 'idle' | 'booting' | 'live' | 'crashed' | 'stopped';
+
 export interface AgentRun {
   id: AgentRunId;
   threadId: ThreadId;
@@ -63,6 +67,23 @@ export interface AgentRun {
   tokenUsageInput: number | null;
   tokenUsageOutput: number | null;
   exitReason: string | null;
+  sessionId: string | null;
+  model: string | null;
+  totalCostUsd: number | null;
+  durationMs: number | null;
+  previewUrl: string | null;
+  previewState: PreviewState | null;
+  previewPid: number | null;
+}
+
+export interface AgentCheck {
+  id: number;
+  agentRunId: AgentRunId;
+  kind: CheckKind;
+  status: CheckStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  summary: string | null;
 }
 
 export interface AgentEvent {

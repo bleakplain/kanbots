@@ -67,10 +67,42 @@ export class AgentEventsRepo {
   list(agentRunId: AgentRunId, opts: ListAgentEventsOptions = {}): AgentEvent[] {
     const afterSeq = opts.afterSeq ?? -1;
     const rows = this.db
-      .prepare(
-        'SELECT * FROM agent_events WHERE agent_run_id = ? AND seq > ? ORDER BY seq',
-      )
+      .prepare('SELECT * FROM agent_events WHERE agent_run_id = ? AND seq > ? ORDER BY seq')
       .all(agentRunId, afterSeq) as AgentEventRow[];
     return rows.map(rowToAgentEvent);
+  }
+
+  findLatestToolUseByRun(runIds: readonly AgentRunId[]): Map<AgentRunId, AgentEvent> {
+    const out = new Map<AgentRunId, AgentEvent>();
+    if (runIds.length === 0) return out;
+    const placeholders = runIds.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(
+        `SELECT e.* FROM agent_events e
+         JOIN (
+           SELECT agent_run_id, MAX(seq) AS max_seq
+           FROM agent_events
+           WHERE agent_run_id IN (${placeholders}) AND type = 'tool_use'
+           GROUP BY agent_run_id
+         ) latest
+           ON e.agent_run_id = latest.agent_run_id AND e.seq = latest.max_seq`,
+      )
+      .all(...runIds) as AgentEventRow[];
+    for (const row of rows) out.set(row.agent_run_id, rowToAgentEvent(row));
+    return out;
+  }
+
+  countByRun(runIds: readonly AgentRunId[]): Map<AgentRunId, number> {
+    const out = new Map<AgentRunId, number>();
+    if (runIds.length === 0) return out;
+    const placeholders = runIds.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(
+        `SELECT agent_run_id, COUNT(*) AS n FROM agent_events
+         WHERE agent_run_id IN (${placeholders}) GROUP BY agent_run_id`,
+      )
+      .all(...runIds) as Array<{ agent_run_id: number; n: number }>;
+    for (const row of rows) out.set(row.agent_run_id, row.n);
+    return out;
   }
 }

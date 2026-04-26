@@ -1,33 +1,47 @@
 # kanbots
 
-Local collaboration interface for working on GitHub Issues with Claude Code agents.
+A desktop kanban for working with Claude Code agents on a project folder.
 
-GitHub stays the source of truth for issues. kanbots adds a local web app and a Claude Code plugin that give each issue an agent thread, structured decision cards, diff proposals, and a kanban board — none of which github.com can offer because it can't run code on your laptop.
+Open any git repository as a workspace and you get a kanban board for issues
+(local, by default), an agent thread per issue, and the ability to start agents
+that run in isolated git worktrees with live tool-call streaming, decision
+prompts, and a built-in branch preview.
 
 ## Status
 
-Phase 0 — workspace skeleton. See `docs/architecture.md` (forthcoming) for the full plan.
+This is a development build. Launch via the desktop scripts; there is no CLI.
 
 ## Packages
 
 | Package | Purpose |
 | --- | --- |
-| `@kanbots/core` | GitHub client, sync, label conventions |
-| `@kanbots/local-store` | SQLite + migrations |
-| `@kanbots/dispatcher` | Agent runtime — spawns and supervises `claude -p` |
-| `@kanbots/api` | HTTP API server |
-| `@kanbots/mcp` | Stdio MCP server |
-| `@kanbots/web` | Vite UI (board + issue detail) |
-| `@kanbots/cli` | The `kanbots` command |
+| `@kanbots/core` | Domain types, GitHub client, `IssueSource` contract |
+| `@kanbots/local-store` | SQLite + migrations, repos, workspace metadata, `LocalIssueSource` |
+| `@kanbots/dispatcher` | Agent runtime — spawns and supervises `claude -p`, parses stream-json |
+| `@kanbots/api` | HTTP API server (Express) + agent supervisor |
+| `@kanbots/web` | React + Vite UI (board + issue detail) |
+| `@kanbots/desktop` | Electron shell — workspace picker, in-process API, native folder dialog |
 
-## Development
+## Run it
+
+Requires Node 20+, pnpm 10+, and `claude` on PATH for agent runs.
+
+Install once:
 
 ```sh
 pnpm install
-pnpm -r build
 ```
 
-Requires Node 20+ and pnpm 10+.
+Launch the desktop app:
+
+```sh
+pnpm desktop          # builds web + main, opens Electron
+pnpm desktop:dev      # Vite hot-reload + Electron pointing at it
+```
+
+A workspace picker opens. Pick any folder that contains a git repository — the
+app creates `.kanbots/` (db + config + worktrees dir) on first open and drops
+straight into the kanban board.
 
 ## License
 

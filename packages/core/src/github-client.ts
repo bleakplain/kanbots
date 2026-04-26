@@ -2,6 +2,7 @@ import { Octokit as Core } from '@octokit/core';
 import { paginateRest } from '@octokit/plugin-paginate-rest';
 import { RequestError } from '@octokit/request-error';
 import type { ETagCache } from './etag-cache.js';
+import type { IssueSource } from './issue-source.js';
 import { ALL_KANBOTS_LABELS } from './labels.js';
 import {
   rawCommentToComment,
@@ -37,7 +38,7 @@ export interface GitHubClientOptions {
   fetch?: typeof fetch;
 }
 
-export class GitHubClient {
+export class GitHubClient implements IssueSource {
   readonly owner: string;
   readonly repo: string;
   private readonly octokit: InstanceType<typeof Octokit>;
@@ -134,14 +135,11 @@ export class GitHubClient {
   }
 
   async getIssue(number: number): Promise<Issue> {
-    const { data } = await this.octokit.request(
-      'GET /repos/{owner}/{repo}/issues/{issue_number}',
-      {
-        owner: this.owner,
-        repo: this.repo,
-        issue_number: number,
-      },
-    );
+    const { data } = await this.octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}', {
+      owner: this.owner,
+      repo: this.repo,
+      issue_number: number,
+    });
     return rawIssueToIssue(data as RawIssue);
   }
 
@@ -255,8 +253,5 @@ export class GitHubClient {
 
 function isRequestError(err: unknown): err is RequestError {
   if (err instanceof RequestError) return true;
-  return (
-    err instanceof Error &&
-    typeof (err as { status?: unknown }).status === 'number'
-  );
+  return err instanceof Error && typeof (err as { status?: unknown }).status === 'number';
 }

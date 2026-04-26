@@ -1,13 +1,17 @@
 import { openDb, type Db } from './db.js';
 import { migrations } from './migrations/index.js';
 import { runMigrations } from './migrations/runner.js';
+import { AgentChecksRepo } from './repos/agent-checks.js';
 import { AgentEventsRepo } from './repos/agent-events.js';
 import { AgentRunsRepo } from './repos/agent-runs.js';
 import { CardsRepo } from './repos/cards.js';
+import { FoldersRepo } from './repos/folders.js';
 import { HttpCacheRepo } from './repos/http-cache.js';
+import { LocalIssuesRepo } from './repos/local-issues.js';
 import { MessagesRepo } from './repos/messages.js';
 import { PromotionsRepo } from './repos/promotions.js';
 import { ThreadsRepo } from './repos/threads.js';
+import { WorkspacesRepo } from './repos/workspaces.js';
 
 export interface Store {
   readonly threads: ThreadsRepo;
@@ -15,8 +19,12 @@ export interface Store {
   readonly cards: CardsRepo;
   readonly agentRuns: AgentRunsRepo;
   readonly events: AgentEventsRepo;
+  readonly checks: AgentChecksRepo;
   readonly promotions: PromotionsRepo;
   readonly httpCache: HttpCacheRepo;
+  readonly localIssues: LocalIssuesRepo;
+  readonly workspaces: WorkspacesRepo;
+  readonly folders: FoldersRepo;
   readonly db: Db;
   close(): void;
 }
@@ -42,8 +50,12 @@ function wrap(db: Db): Store {
     cards: new CardsRepo(db),
     agentRuns: new AgentRunsRepo(db),
     events: new AgentEventsRepo(db),
+    checks: new AgentChecksRepo(db),
     promotions: new PromotionsRepo(db),
     httpCache: new HttpCacheRepo(db),
+    localIssues: new LocalIssuesRepo(db),
+    workspaces: new WorkspacesRepo(db),
+    folders: new FoldersRepo(db),
     db,
     close: () => db.close(),
   };
@@ -59,18 +71,39 @@ export { CardAlreadyResolvedError } from './repos/cards.js';
 export type { CreateCardInput } from './repos/cards.js';
 export type { CreateThreadInput } from './repos/threads.js';
 export type { CreateMessageInput } from './repos/messages.js';
-export type {
-  CreateAgentRunInput,
-  UpdateAgentRunPatch,
-} from './repos/agent-runs.js';
-export type {
-  AppendAgentEventInput,
-  ListAgentEventsOptions,
-} from './repos/agent-events.js';
+export type { CreateAgentRunInput, UpdateAgentRunPatch } from './repos/agent-runs.js';
+export type { AppendAgentEventInput, ListAgentEventsOptions } from './repos/agent-events.js';
 export type { CreatePromotionInput } from './repos/promotions.js';
 export type { SetCacheInput } from './repos/http-cache.js';
 
+export {
+  LocalIssueNotFoundError,
+  type CreateLocalCommentInput,
+  type CreateLocalIssueInput,
+  type UpdateLocalIssuePatch,
+} from './repos/local-issues.js';
+export { LocalIssueSource, type LocalIssueSourceOptions } from './local-issue-source.js';
+
+export type { Workspace, CreateWorkspaceInput } from './repos/workspaces.js';
+export type { Folder, CreateFolderInput } from './repos/folders.js';
+
+export {
+  describeKanbotsDir,
+  ensureGitignoreEntry,
+  ensureKanbotsDir,
+  findGitRoot,
+  readWorkspaceConfig,
+  resolveGitUserName,
+  writeWorkspaceConfig,
+  type GitHubWorkspaceConfig,
+  type KanbotsDir,
+  type LocalWorkspaceConfig,
+  type WorkspaceConfig,
+  type WorkspaceMode,
+} from './workspace.js';
+
 export type {
+  AgentCheck,
   AgentEvent,
   AgentEventId,
   AgentEventType,
@@ -82,8 +115,11 @@ export type {
   CardId,
   CardStatus,
   CardType,
+  CheckKind,
+  CheckStatus,
   Message,
   MessageId,
+  PreviewState,
   Promotion,
   PromotionId,
   PromotionKind,
@@ -91,3 +127,5 @@ export type {
   Thread,
   ThreadId,
 } from './types.js';
+
+export type { StartCheckInput, FinishCheckInput } from './repos/agent-checks.js';

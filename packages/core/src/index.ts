@@ -2,11 +2,8 @@ export const PACKAGE_NAME = '@kanbots/core';
 
 export { GitHubClient, type GitHubClientOptions } from './github-client.js';
 export { resolveGitHubToken, TOKEN_FILE_PATH, type AuthDeps } from './auth.js';
-export {
-  GitHubRequestError,
-  KanbotsAuthError,
-  KanbotsError,
-} from './errors.js';
+export type { IssueSource } from './issue-source.js';
+export { GitHubRequestError, KanbotsAuthError, KanbotsError } from './errors.js';
 export {
   AGENT_LABELS,
   AGENT_PREFIX,
@@ -20,11 +17,7 @@ export {
   type AgentKey,
   type StatusKey,
 } from './labels.js';
-export type {
-  CacheEntry,
-  ETagCache,
-  SetCacheInput,
-} from './etag-cache.js';
+export type { CacheEntry, ETagCache, SetCacheInput } from './etag-cache.js';
 export type {
   Comment,
   CreateIssueInput,

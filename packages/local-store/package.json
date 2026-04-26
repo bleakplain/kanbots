@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@kanbots/core": "workspace:*",
     "better-sqlite3": "^12.4.1"
   },
   "devDependencies": {

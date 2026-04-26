@@ -5,11 +5,9 @@ import { makeTestApp } from './helpers/make-app.js';
 
 describe('POST /api/issues/:n/comments', () => {
   it('creates a comment and returns 201', async () => {
-    const { app, client } = makeTestApp();
-    client.setIssue(issueFixture(1, 'a'));
-    const res = await request(app)
-      .post('/api/issues/1/comments')
-      .send({ body: 'hello world' });
+    const { app, source } = makeTestApp();
+    source.setIssue(issueFixture(1, 'a'));
+    const res = await request(app).post('/api/issues/1/comments').send({ body: 'hello world' });
 
     expect(res.status).toBe(201);
     expect(res.body.body).toBe('hello world');
@@ -32,30 +30,26 @@ describe('POST /api/issues/:n/comments', () => {
 
   it('rejects unknown fields', async () => {
     const { app } = makeTestApp();
-    const res = await request(app)
-      .post('/api/issues/1/comments')
-      .send({ body: 'hi', extra: 'x' });
+    const res = await request(app).post('/api/issues/1/comments').send({ body: 'hi', extra: 'x' });
     expect(res.status).toBe(400);
   });
 
   it('rejects non-numeric path', async () => {
     const { app } = makeTestApp();
-    const res = await request(app)
-      .post('/api/issues/abc/comments')
-      .send({ body: 'hi' });
+    const res = await request(app).post('/api/issues/abc/comments').send({ body: 'hi' });
     expect(res.status).toBe(400);
   });
 
   it('propagates upstream 403', async () => {
-    const { app, client } = makeTestApp();
-    client.failAddComment(403, 'no write access');
+    const { app, source } = makeTestApp();
+    source.failAddComment(403, 'no write access');
     const res = await request(app).post('/api/issues/1/comments').send({ body: 'x' });
     expect(res.status).toBe(403);
   });
 
   it('appends to the comments visible on issue detail', async () => {
-    const { app, client } = makeTestApp();
-    client.setIssue(issueFixture(1, 'a'));
+    const { app, source } = makeTestApp();
+    source.setIssue(issueFixture(1, 'a'));
 
     await request(app).post('/api/issues/1/comments').send({ body: 'first' });
     await request(app).post('/api/issues/1/comments').send({ body: 'second' });

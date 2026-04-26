@@ -22,6 +22,8 @@ describe('migrations', () => {
     expect(names).toContain('agent_events');
     expect(names).toContain('promotions');
     expect(names).toContain('http_cache');
+    expect(names).toContain('workspaces');
+    expect(names).toContain('folders');
 
     const indexes = store.db
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
@@ -37,7 +39,16 @@ describe('migrations', () => {
   it('records applied migrations in _migrations', () => {
     const store = openStoreInMemory();
     const rows = store.db.prepare('SELECT id FROM _migrations').all() as { id: string }[];
-    expect(rows.map((r) => r.id)).toEqual(['0001_initial']);
+    expect(rows.map((r) => r.id)).toEqual([
+      '0001_initial',
+      '0002_agent_session',
+      '0003_local_issues',
+      '0004_agent_model',
+      '0005_workspaces_folders',
+      '0006_agent_cost',
+      '0007_agent_checks',
+      '0008_agent_preview',
+    ]);
     store.close();
   });
 
@@ -56,11 +67,16 @@ describe('migrations', () => {
 
     it('does not re-apply migrations on reopen', () => {
       const s1 = openStore({ path: dbPath });
+      const before = s1.db.prepare('SELECT COUNT(*) AS n FROM _migrations').get() as {
+        n: number;
+      };
       s1.close();
 
       const s2 = openStore({ path: dbPath });
-      const rows = s2.db.prepare('SELECT COUNT(*) AS n FROM _migrations').get() as { n: number };
-      expect(rows.n).toBe(1);
+      const after = s2.db.prepare('SELECT COUNT(*) AS n FROM _migrations').get() as {
+        n: number;
+      };
+      expect(after.n).toBe(before.n);
       s2.close();
     });
 

@@ -1,8 +1,21 @@
-import type { Comment, Issue, UpdateIssuePatch } from '@kanbots/core';
-import { openStoreInMemory, type Store } from '@kanbots/local-store';
+import type {
+  Comment,
+  CreateIssueInput,
+  Issue,
+  IssueSource,
+  UpdateIssuePatch,
+} from '@kanbots/core';
+import {
+  openStoreInMemory,
+  type AgentEvent,
+  type AgentRunStatus,
+  type Card,
+  type Store,
+} from '@kanbots/local-store';
 import type { Express } from 'express';
-import { createApp } from '../../src/app.js';
-import type { ApiGitHubClient } from '../../src/routes/issues.js';
+import { createApp, type AppDeps } from '../../src/app.js';
+import type { AgentSupervisor } from '../../src/agent-runs/supervisor.js';
+import type { DraftIssueFn } from '../../src/routes/composer.js';
 
 interface ApiError extends Error {
   status: number;
@@ -14,14 +27,16 @@ function apiError(status: number, message: string): ApiError {
   return err;
 }
 
-export class FakeApiClient implements ApiGitHubClient {
+export class FakeIssueSource implements IssueSource {
   private readonly issuesByState = new Map<string, Issue[]>();
   private readonly issuesByNumber = new Map<number, Issue>();
   private readonly commentsByIssue = new Map<number, Comment[]>();
   private nextCommentId = 1;
+  private nextIssueNumber = 1000;
 
   failNextUpdateWith: ApiError | null = null;
   failNextAddCommentWith: ApiError | null = null;
+  failNextCreateIssueWith: ApiError | null = null;
 
   setIssues(state: 'open' | 'closed' | 'all', issues: Issue[]): void {
     this.issuesByState.set(state, issues);
@@ -44,6 +59,10 @@ export class FakeApiClient implements ApiGitHubClient {
 
   failAddComment(status: number, message = 'fake comment failure'): void {
     this.failNextAddCommentWith = apiError(status, message);
+  }
+
+  failCreateIssue(status: number, message = 'fake create failure'): void {
+    this.failNextCreateIssueWith = apiError(status, message);
   }
 
   async listIssues(opts: { state?: 'open' | 'closed' | 'all' } = {}): Promise<Issue[]> {
@@ -102,21 +121,195 @@ export class FakeApiClient implements ApiGitHubClient {
     this.commentsByIssue.set(n, arr);
     return comment;
   }
+
+  async createIssue(input: CreateIssueInput): Promise<Issue> {
+    if (this.failNextCreateIssueWith) {
+      const err = this.failNextCreateIssueWith;
+      this.failNextCreateIssueWith = null;
+      throw err;
+    }
+    const number = this.nextIssueNumber++;
+    const now = new Date().toISOString();
+    const issue: Issue = {
+      number,
+      title: input.title,
+      body: input.body ?? '',
+      state: 'open',
+      labels: [...(input.labels ?? [])],
+      assignees: [...(input.assignees ?? [])],
+      user: { login: 'tester', avatarUrl: null },
+      createdAt: now,
+      updatedAt: now,
+      closedAt: null,
+      htmlUrl: `https://github.com/octo/hello/issues/${number}`,
+      isPullRequest: false,
+    };
+    this.issuesByNumber.set(number, issue);
+    const arr = this.issuesByState.get('open') ?? [];
+    arr.unshift(issue);
+    this.issuesByState.set('open', arr);
+    return issue;
+  }
 }
 
 export interface TestApp {
   app: Express;
-  client: FakeApiClient;
+  source: FakeIssueSource;
   store: Store;
+  draftIssue: ReturnType<typeof makeStubDraftIssue>;
+  supervisor: ReturnType<typeof makeStubSupervisor>;
 }
 
-export function makeTestApp(): TestApp {
-  const client = new FakeApiClient();
-  const store = openStoreInMemory();
-  const app = createApp({
-    client,
-    store,
-    config: { owner: 'octo', repo: 'hello' },
+export interface MakeTestAppOptions {
+  draftIssue?: DraftIssueFn;
+  supervisor?: AgentSupervisor;
+  configOverride?: Partial<AppDeps['config']>;
+}
+
+function makeStubDraftIssue(): DraftIssueFn & {
+  setNextResponse: (response: { title: string; body: string }) => void;
+  setNextError: (err: Error) => void;
+  calls: Array<{ description: string }>;
+} {
+  let nextResponse: { title: string; body: string } | null = null;
+  let nextError: Error | null = null;
+  const calls: Array<{ description: string }> = [];
+
+  const fn: DraftIssueFn = async (input) => {
+    calls.push({ description: input.description });
+    if (nextError) {
+      const err = nextError;
+      nextError = null;
+      throw err;
+    }
+    if (nextResponse) {
+      const r = nextResponse;
+      nextResponse = null;
+      return r;
+    }
+    return {
+      title: `drafted: ${input.description.slice(0, 40)}`,
+      body: `# Drafted from\n\n${input.description}`,
+    };
+  };
+
+  return Object.assign(fn, {
+    setNextResponse(response: { title: string; body: string }): void {
+      nextResponse = response;
+    },
+    setNextError(err: Error): void {
+      nextError = err;
+    },
+    calls,
   });
-  return { app, client, store };
+}
+
+export function makeStubSupervisor(store: Store) {
+  const calls: Array<{ type: string; args: unknown }> = [];
+  interface Subscriber {
+    onEvent: (e: AgentEvent) => void;
+    onStatus: (s: AgentRunStatus) => void;
+    onCard?: (c: Card) => void;
+  }
+  const subscribers = new Map<number, Subscriber[]>();
+  const activeRunIds = new Set<number>();
+
+  const supervisor: AgentSupervisor = {
+    async start(input) {
+      calls.push({ type: 'start', args: input });
+      const run = store.agentRuns.create({
+        threadId: input.threadId,
+        status: 'starting',
+      });
+      const updated = store.agentRuns.update(run.id, { status: 'running' });
+      activeRunIds.add(updated.id);
+      return updated;
+    },
+    async resume(input) {
+      calls.push({ type: 'resume', args: input });
+      const run = store.agentRuns.update(input.runId, { status: 'running', endedAt: null });
+      activeRunIds.add(run.id);
+      const subs = subscribers.get(run.id) ?? [];
+      for (const s of subs) s.onStatus(run.status);
+      return run;
+    },
+    async stop(runId) {
+      calls.push({ type: 'stop', args: runId });
+      const stopped = store.agentRuns.update(runId, {
+        status: 'stopped',
+        endedAt: new Date().toISOString(),
+      });
+      activeRunIds.delete(runId);
+      const subs = subscribers.get(runId) ?? [];
+      for (const s of subs) s.onStatus('stopped');
+      return stopped;
+    },
+    getRun(runId) {
+      return store.agentRuns.findById(runId);
+    },
+    listEvents(runId, sinceSeq) {
+      return store.events.list(runId, sinceSeq !== undefined ? { afterSeq: sinceSeq } : {});
+    },
+    listCards(runId) {
+      return store.cards.listByRun(runId);
+    },
+    isActive(runId) {
+      return activeRunIds.has(runId);
+    },
+    subscribe(runId, onEvent, onStatus, onCard) {
+      const arr = subscribers.get(runId) ?? [];
+      const entry: Subscriber = { onEvent, onStatus };
+      if (onCard) entry.onCard = onCard;
+      arr.push(entry);
+      subscribers.set(runId, arr);
+      return () => {
+        const next = (subscribers.get(runId) ?? []).filter((e) => e !== entry);
+        subscribers.set(runId, next);
+      };
+    },
+  };
+
+  return Object.assign(supervisor, {
+    calls,
+    pushEvent(runId: number, event: AgentEvent): void {
+      const subs = subscribers.get(runId) ?? [];
+      for (const s of subs) s.onEvent(event);
+    },
+    pushCard(runId: number, card: Card): void {
+      const subs = subscribers.get(runId) ?? [];
+      for (const s of subs) s.onCard?.(card);
+    },
+    finish(runId: number, status: AgentRunStatus): void {
+      activeRunIds.delete(runId);
+      store.agentRuns.update(runId, {
+        status,
+        endedAt: new Date().toISOString(),
+      });
+      const subs = subscribers.get(runId) ?? [];
+      for (const s of subs) s.onStatus(status);
+    },
+  });
+}
+
+export function makeTestApp(opts: MakeTestAppOptions = {}): TestApp {
+  const source = new FakeIssueSource();
+  const store = openStoreInMemory();
+  const draftIssue = makeStubDraftIssue();
+  const supervisor = opts.supervisor
+    ? Object.assign(opts.supervisor as AgentSupervisor, {
+        calls: [] as Array<{ type: string; args: unknown }>,
+        pushEvent() {},
+        pushCard() {},
+        finish() {},
+      })
+    : makeStubSupervisor(store);
+  const deps: AppDeps = {
+    source,
+    store,
+    config: { owner: 'octo', repo: 'hello', ...(opts.configOverride ?? {}) },
+    draftIssue: opts.draftIssue ?? draftIssue,
+    supervisor,
+  };
+  const app = createApp(deps);
+  return { app, source, store, draftIssue, supervisor };
 }

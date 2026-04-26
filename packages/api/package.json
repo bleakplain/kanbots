@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@kanbots/core": "workspace:*",
+    "@kanbots/dispatcher": "workspace:*",
     "@kanbots/local-store": "workspace:*",
     "express": "^5.1.0",
     "zod": "^3.24.1"

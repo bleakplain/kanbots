@@ -4,9 +4,9 @@ import { issueFixture } from './helpers/fixtures.js';
 import { makeTestApp } from './helpers/make-app.js';
 
 describe('GET /api/issues', () => {
-  it('returns issues from the client', async () => {
-    const { app, client } = makeTestApp();
-    client.setIssues('open', [issueFixture(1, 'first'), issueFixture(2, 'second')]);
+  it('returns issues from the source', async () => {
+    const { app, source } = makeTestApp();
+    source.setIssues('open', [issueFixture(1, 'first'), issueFixture(2, 'second')]);
     const res = await request(app).get('/api/issues');
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(2);
@@ -16,8 +16,8 @@ describe('GET /api/issues', () => {
   });
 
   it('decorates issues with status and agent from labels', async () => {
-    const { app, client } = makeTestApp();
-    client.setIssues('open', [
+    const { app, source } = makeTestApp();
+    source.setIssues('open', [
       issueFixture(1, 'todo-with-running', { labels: ['status:in-progress', 'agent:running'] }),
       issueFixture(2, 'plain', { labels: [] }),
       issueFixture(3, 'review', { labels: ['status:review', 'agent:blocked'] }),
@@ -31,10 +31,10 @@ describe('GET /api/issues', () => {
     expect(res.body[2].agent).toBe('blocked');
   });
 
-  it('passes state filter to the client', async () => {
-    const { app, client } = makeTestApp();
-    client.setIssues('closed', [issueFixture(1, 'closed-one')]);
-    client.setIssues('open', [issueFixture(2, 'open-one')]);
+  it('passes state filter to the source', async () => {
+    const { app, source } = makeTestApp();
+    source.setIssues('closed', [issueFixture(1, 'closed-one')]);
+    source.setIssues('open', [issueFixture(2, 'open-one')]);
 
     const closed = await request(app).get('/api/issues?state=closed');
     expect(closed.body).toHaveLength(1);
@@ -45,8 +45,8 @@ describe('GET /api/issues', () => {
   });
 
   it('supports state=all', async () => {
-    const { app, client } = makeTestApp();
-    client.setIssues('all', [issueFixture(1, 'a'), issueFixture(2, 'b')]);
+    const { app, source } = makeTestApp();
+    source.setIssues('all', [issueFixture(1, 'a'), issueFixture(2, 'b')]);
     const res = await request(app).get('/api/issues?state=all');
     expect(res.body).toHaveLength(2);
   });
@@ -58,7 +58,7 @@ describe('GET /api/issues', () => {
     expect(res.body.error).toBe('ValidationError');
   });
 
-  it('returns empty array when client has nothing', async () => {
+  it('returns empty array when source has nothing', async () => {
     const { app } = makeTestApp();
     const res = await request(app).get('/api/issues');
     expect(res.status).toBe(200);

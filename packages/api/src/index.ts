@@ -5,8 +5,16 @@ export const PACKAGE_NAME = '@kanbots/api';
 
 export { createApp };
 export type { AppDeps } from './app.js';
-export type { ApiGitHubClient, DecoratedIssue, IssuesDeps } from './routes/issues.js';
+export type { DecoratedIssue, IssuesDeps } from './routes/issues.js';
 export type { ConfigPayload } from './routes/config.js';
+export type { DraftIssueFn, DraftIssueInput, DraftedIssue } from './routes/composer.js';
+export {
+  createSupervisor,
+  type AgentSupervisor,
+  type CreateSupervisorOptions,
+  type ResumeRunInput,
+  type StartRunInput,
+} from './agent-runs/supervisor.js';
 
 export interface StartOptions extends AppDeps {
   port?: number;

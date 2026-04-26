@@ -1,9 +1,17 @@
 import js from '@eslint/js';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default [
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/.kanbots/**', '**/.vite/**', '**/coverage/**'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/.kanbots/**',
+      '**/.vite/**',
+      '**/coverage/**',
+      '**/release/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -18,6 +26,16 @@ export default [
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/consistent-type-imports': 'error',
+    },
+  },
+  {
+    files: ['**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { ...globals.node },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
     },
   },
 ];
