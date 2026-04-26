@@ -23,6 +23,14 @@ export interface ResolveCardResult {
   run: AgentRun;
 }
 
+export interface UploadAttachmentResult {
+  filename: string;
+  absolutePath: string;
+  relativePath: string;
+  size: number;
+  contentType: string;
+}
+
 export interface PostMessageResult {
   message: Message;
   thread: Thread;
@@ -155,4 +163,31 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ value }),
     }),
+  uploadAttachment: async (file: Blob): Promise<UploadAttachmentResult> => {
+    const dataBase64 = await blobToBase64(file);
+    return send<UploadAttachmentResult>('/api/attachments', {
+      method: 'POST',
+      body: JSON.stringify({
+        contentType: file.type || 'application/octet-stream',
+        dataBase64,
+      }),
+    });
+  },
 };
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('failed to read blob'));
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('expected data URL string from FileReader'));
+        return;
+      }
+      const idx = result.indexOf(',');
+      resolve(idx >= 0 ? result.slice(idx + 1) : result);
+    };
+    reader.readAsDataURL(blob);
+  });
+}

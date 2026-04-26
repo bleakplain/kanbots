@@ -8,6 +8,7 @@ export type { AppDeps } from './app.js';
 export type { DecoratedIssue, IssuesDeps } from './routes/issues.js';
 export type { ConfigPayload } from './routes/config.js';
 export type { DraftIssueFn, DraftIssueInput, DraftedIssue } from './routes/composer.js';
+export type { UploadAttachmentResponse } from './routes/attachments.js';
 export {
   createSupervisor,
   type AgentSupervisor,

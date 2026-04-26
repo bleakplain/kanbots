@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import { api } from '../../api.js';
 import { useWorkspace } from '../../hooks/useWorkspace.js';
 import { CardPreview } from '../Card.js';
@@ -124,6 +133,61 @@ export function TaskCreateModal({
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const [pasting, setPasting] = useState(0);
+
+  const insertAtCursor = useCallback((insert: string): void => {
+    setBody((prev) => {
+      const ta = bodyRef.current;
+      if (!ta) return prev + insert;
+      const start = ta.selectionStart ?? prev.length;
+      const end = ta.selectionEnd ?? prev.length;
+      const next = prev.slice(0, start) + insert + prev.slice(end);
+      const cursor = start + insert.length;
+      queueMicrotask(() => {
+        if (bodyRef.current) {
+          bodyRef.current.focus();
+          bodyRef.current.setSelectionRange(cursor, cursor);
+        }
+      });
+      return next;
+    });
+  }, []);
+
+  const replaceText = useCallback((from: string, to: string): void => {
+    setBody((prev) => (prev.includes(from) ? prev.replace(from, to) : prev));
+  }, []);
+
+  async function handlePaste(e: ClipboardEvent<HTMLTextAreaElement>): Promise<void> {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const images: File[] = [];
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) images.push(file);
+      }
+    }
+    if (images.length === 0) return;
+    e.preventDefault();
+    for (const file of images) {
+      const token = `![uploading image…](kanbots-pending:${Date.now()}-${Math.random().toString(36).slice(2, 8)})`;
+      insertAtCursor(token);
+      setPasting((n) => n + 1);
+      try {
+        const result = await api.uploadAttachment(file);
+        const alt = file.name?.trim() || 'pasted image';
+        replaceText(token, `![${alt}](${result.absolutePath})`);
+      } catch (err) {
+        replaceText(token, '');
+        setError(
+          `Failed to upload pasted image: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } finally {
+        setPasting((n) => Math.max(0, n - 1));
+      }
+    }
+  }
 
   const branchName = useMemo(() => `claude/${slugify(title || 'untitled')}`, [title]);
   const previewIssue: Issue = useMemo(
@@ -188,6 +252,10 @@ export function TaskCreateModal({
   async function submit(e?: FormEvent): Promise<void> {
     if (e) e.preventDefault();
     if (submitting) return;
+    if (pasting > 0) {
+      setError('Wait for the pasted image upload to finish');
+      return;
+    }
     if (!title.trim()) {
       setError('Title is required');
       return;
@@ -355,11 +423,18 @@ export function TaskCreateModal({
                   <span className="kb-field-hint">Markdown · use AC: for acceptance criteria</span>
                 </label>
                 <textarea
+                  ref={bodyRef}
                   className="kb-textarea"
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
-                  placeholder={`What is the user-facing outcome?\n\nAC:\n- A new user can register a passkey on first login\n- Existing users see a banner with passkey CTA`}
+                  onPaste={(e) => void handlePaste(e)}
+                  placeholder={`What is the user-facing outcome?\n\nAC:\n- A new user can register a passkey on first login\n- Existing users see a banner with passkey CTA\n\nTip: paste an image (⌘V / Ctrl+V) to attach it.`}
                 />
+                {pasting > 0 ? (
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>
+                    Uploading {pasting} image{pasting === 1 ? '' : 's'}…
+                  </div>
+                ) : null}
               </div>
 
               {/* MODE */}
@@ -641,7 +716,7 @@ export function TaskCreateModal({
           </button>
           <SplitButton
             primaryLabel={submitting ? 'Creating…' : modeDef.submitLabel}
-            primaryDisabled={submitting || !title.trim()}
+            primaryDisabled={submitting || pasting > 0 || !title.trim()}
             onPrimary={() => void submit()}
             options={[
               {
