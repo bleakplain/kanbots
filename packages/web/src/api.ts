@@ -136,6 +136,8 @@ export const api = {
     send(`/api/issues/${issueNumber}/pr/approve`, { method: 'POST' }),
   requestChangesIssue: (issueNumber: number): Promise<Issue> =>
     send(`/api/issues/${issueNumber}/pr/request-changes`, { method: 'POST' }),
+  archiveIssue: (issueNumber: number): Promise<Issue> =>
+    send(`/api/issues/${issueNumber}/archive`, { method: 'POST' }),
   splitIssue: (
     issueNumber: number,
     subtasks: Array<{ title: string; body?: string }>,

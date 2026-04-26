@@ -1,7 +1,7 @@
 import { useEffect, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { api } from '../../api.js';
 import { useFetch } from '../../hooks/useFetch.js';
-import { useIssues } from '../../hooks/useIssues.js';
+import { useIssues, dispatchIssuesRefetch } from '../../hooks/useIssues.js';
 import { useAgentRunStream } from '../../hooks/useAgentRunStream.js';
 import {
   ageString,
@@ -114,6 +114,22 @@ export function TaskDetailModal({ issueNumber, onClose }: TaskDetailModalProps) 
               Open preview ↗
             </button>
           ) : null}
+          <button
+            type="button"
+            className="kb-btn ghost"
+            onClick={() => {
+              const msg = isRunning
+                ? 'Archive this ticket? Its running agent will be stopped.'
+                : 'Archive this ticket?';
+              if (!window.confirm(msg)) return;
+              void api.archiveIssue(issueNumber).then(() => {
+                dispatchIssuesRefetch();
+                onClose();
+              });
+            }}
+          >
+            Archive
+          </button>
           <button
             type="button"
             className="x-btn"
