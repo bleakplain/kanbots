@@ -80,6 +80,33 @@ export type AgentEventListener = (event: AgentEvent) => void;
 export type AgentStatusListener = (status: AgentRunStatus) => void;
 export type CardListener = (card: Card) => void;
 
+export interface CooldownState {
+  active: boolean;
+  until: string | null;
+  reason: 'rate_limit' | 'overloaded' | 'quota' | null;
+  consecutiveHits: number;
+  message: string | null;
+}
+
+export type CooldownListener = (state: CooldownState) => void;
+
+export class RateLimitedError extends Error {
+  readonly code = 'RATE_LIMITED' as const;
+  readonly cooldown: CooldownState;
+  constructor(cooldown: CooldownState) {
+    super(
+      `Claude API in cooldown (${cooldown.reason ?? 'rate_limit'}); resumes at ${
+        cooldown.until ?? 'unknown'
+      }`,
+    );
+    this.name = 'RateLimitedError';
+    this.cooldown = cooldown;
+  }
+}
+
+const COOLDOWN_BACKOFF_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
+const COOLDOWN_MAX_MS = 300_000;
+
 export interface AgentSupervisor {
   start(input: StartRunInput): Promise<AgentRun>;
   resume(input: ResumeRunInput): Promise<AgentRun>;
@@ -94,6 +121,9 @@ export interface AgentSupervisor {
     onStatus: AgentStatusListener,
     onCard?: CardListener,
   ): () => void;
+  getCooldown(): CooldownState;
+  subscribeCooldown(listener: CooldownListener): () => void;
+  waitForCooldown(signal?: AbortSignal): Promise<void>;
 }
 
 interface ActiveRun {
@@ -149,6 +179,104 @@ export async function createSupervisor(
   const eventChannel = (runId: number): string => `event:${runId}`;
   const statusChannel = (runId: number): string => `status:${runId}`;
   const cardChannel = (runId: number): string => `card:${runId}`;
+  const COOLDOWN_CHANNEL = 'cooldown:changed';
+
+  let cooldownUntilMs: number | null = null;
+  let cooldownReason: CooldownState['reason'] = null;
+  let cooldownMessage: string | null = null;
+  let consecutiveHits = 0;
+  let cooldownClearTimer: NodeJS.Timeout | null = null;
+
+  function snapshotCooldown(): CooldownState {
+    const now = Date.now();
+    const active = cooldownUntilMs !== null && cooldownUntilMs > now;
+    return {
+      active,
+      until: active && cooldownUntilMs !== null ? new Date(cooldownUntilMs).toISOString() : null,
+      reason: active ? cooldownReason : null,
+      consecutiveHits,
+      message: active ? cooldownMessage : null,
+    };
+  }
+
+  function emitCooldown(): void {
+    emitter.emit(COOLDOWN_CHANNEL, snapshotCooldown());
+  }
+
+  function applyRateLimit(reason: CooldownState['reason'], retryAfterMs: number | null, message: string): void {
+    consecutiveHits += 1;
+    const backoffIdx = Math.min(consecutiveHits - 1, COOLDOWN_BACKOFF_MS.length - 1);
+    const backoff = COOLDOWN_BACKOFF_MS[backoffIdx] ?? COOLDOWN_MAX_MS;
+    const ms = Math.min(
+      COOLDOWN_MAX_MS,
+      retryAfterMs !== null && retryAfterMs > 0 ? retryAfterMs : backoff,
+    );
+    const candidate = Date.now() + ms;
+    if (cooldownUntilMs === null || candidate > cooldownUntilMs) {
+      cooldownUntilMs = candidate;
+    }
+    cooldownReason = reason ?? 'rate_limit';
+    cooldownMessage = message;
+    if (cooldownClearTimer) {
+      clearTimeout(cooldownClearTimer);
+      cooldownClearTimer = null;
+    }
+    cooldownClearTimer = setTimeout(() => {
+      cooldownClearTimer = null;
+      emitCooldown();
+    }, Math.max(0, (cooldownUntilMs ?? Date.now()) - Date.now()) + 50);
+    emitCooldown();
+  }
+
+  function clearCooldownOnSuccess(): void {
+    if (consecutiveHits === 0) return;
+    consecutiveHits = 0;
+    if (cooldownUntilMs !== null && cooldownUntilMs <= Date.now()) {
+      cooldownUntilMs = null;
+      cooldownReason = null;
+      cooldownMessage = null;
+      emitCooldown();
+    }
+  }
+
+  function getCooldown(): CooldownState {
+    return snapshotCooldown();
+  }
+
+  function subscribeCooldown(listener: CooldownListener): () => void {
+    const wrap = (s: CooldownState): void => listener(s);
+    emitter.on(COOLDOWN_CHANNEL, wrap);
+    return () => {
+      emitter.off(COOLDOWN_CHANNEL, wrap);
+    };
+  }
+
+  function waitForCooldown(signal?: AbortSignal): Promise<void> {
+    const state = snapshotCooldown();
+    if (!state.active) return Promise.resolve();
+    if (signal?.aborted) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const cleanup = (): void => {
+        if (settled) return;
+        settled = true;
+        emitter.off(COOLDOWN_CHANNEL, onChange);
+        signal?.removeEventListener('abort', onAbort);
+      };
+      const onChange = (s: CooldownState): void => {
+        if (!s.active) {
+          cleanup();
+          resolve();
+        }
+      };
+      const onAbort = (): void => {
+        cleanup();
+        resolve();
+      };
+      emitter.on(COOLDOWN_CHANNEL, onChange);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
 
   function composeSystemPrompt(
     currentRunId: number,
@@ -209,6 +337,21 @@ export async function createSupervisor(
     active.set(run.id, entry);
 
     handle.on('event', (streamEvent: StreamEvent) => {
+      if (streamEvent.kind === 'rate_limit') {
+        applyRateLimit(streamEvent.reason, streamEvent.retryAfterMs, streamEvent.message);
+        const persistedRl = store.events.append({
+          agentRunId: run.id,
+          type: 'error',
+          payload: {
+            message: streamEvent.message,
+            rateLimit: true,
+            reason: streamEvent.reason,
+            retryAfterMs: streamEvent.retryAfterMs,
+          },
+        });
+        emitter.emit(eventChannel(run.id), persistedRl);
+        return;
+      }
       if (streamEvent.kind === 'session') {
         store.agentRuns.update(run.id, {
           sessionId: streamEvent.sessionId,
@@ -279,6 +422,7 @@ export async function createSupervisor(
         store.cards.dismissPendingDecisionsForRun(run.id);
       }
       active.delete(run.id);
+      if (status === 'complete') clearCooldownOnSuccess();
       emitter.emit(statusChannel(run.id), updated.status);
       if (status === 'complete' && opts.onRunComplete) {
         void Promise.resolve(opts.onRunComplete(updated)).catch(() => {
@@ -302,6 +446,8 @@ export async function createSupervisor(
     if (conflicting !== null) {
       throw threadAlreadyActiveError(conflicting);
     }
+    const cd = snapshotCooldown();
+    if (cd.active) throw new RateLimitedError(cd);
     let run = store.agentRuns.create({ threadId: input.threadId, status: 'starting' });
     const branch = defaultBranchName({
       issueNumber: input.issueNumber,
@@ -354,6 +500,8 @@ export async function createSupervisor(
   }
 
   async function resume(input: ResumeRunInput): Promise<AgentRun> {
+    const cd = snapshotCooldown();
+    if (cd.active) throw new RateLimitedError(cd);
     const existing = store.agentRuns.findById(input.runId);
     if (!existing) throw new Error(`agent run ${input.runId} not found`);
     if (active.has(input.runId)) {
@@ -475,7 +623,19 @@ export async function createSupervisor(
     };
   }
 
-  return { start, resume, stop, getRun, listEvents, listCards, isActive, subscribe };
+  return {
+    start,
+    resume,
+    stop,
+    getRun,
+    listEvents,
+    listCards,
+    isActive,
+    subscribe,
+    getCooldown,
+    subscribeCooldown,
+    waitForCooldown,
+  };
 }
 
 function persistEvent(store: Store, runId: number, ev: StreamEvent): AgentEvent | null {
@@ -511,6 +671,7 @@ function persistEvent(store: Store, runId: number, ev: StreamEvent): AgentEvent 
     case 'session':
     case 'decision':
     case 'result':
+    case 'rate_limit':
       return null;
   }
 }

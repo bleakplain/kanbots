@@ -93,6 +93,12 @@ async function runSlot(
 ): Promise<void> {
   log(`session ${sessionId}: slot ${slotIndex} entered runSlot`);
   while (!signal.aborted) {
+    // If a previous iteration tripped the global Claude API cooldown, wait it
+    // out before spawning the next child — otherwise we burn budget retrying
+    // straight into the same wall.
+    await ctx.supervisor.waitForCooldown(signal);
+    if (signal.aborted) return;
+
     const claim = await claimNext();
     if (!claim) {
       log(`session ${sessionId}: slot ${slotIndex} got null claim — exiting`);

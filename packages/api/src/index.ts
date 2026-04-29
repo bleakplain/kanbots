@@ -2,7 +2,10 @@ export const PACKAGE_NAME = '@kanbots/api';
 
 export {
   createSupervisor,
+  RateLimitedError,
   type AgentSupervisor,
+  type CooldownListener,
+  type CooldownState,
   type CreateSupervisorOptions,
   type ResumeRunInput,
   type StartRunInput,
@@ -61,6 +64,7 @@ export type {
   CheckKind,
   Comment,
   Config,
+  CooldownStatePayload,
   CreateIssueInput,
   DecisionPayload,
   DecoratedIssue,

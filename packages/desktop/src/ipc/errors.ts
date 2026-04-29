@@ -7,7 +7,8 @@ export interface IpcError {
 export function toIpcError(err: unknown): IpcError {
   if (err instanceof Error) {
     const { name, message } = err;
-    const details = (err as { run?: unknown }).run;
+    const e = err as { run?: unknown; cooldown?: unknown };
+    const details = e.run !== undefined ? e.run : e.cooldown;
     return details !== undefined ? { name, message, details } : { name, message };
   }
   return { name: 'UnknownError', message: String(err) };

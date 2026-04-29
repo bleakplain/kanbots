@@ -63,6 +63,7 @@ interface ActiveWorkspace {
   unregisterHandlers: () => void;
   ownerId: number;
   detachOwnerCleanup: () => void;
+  cooldownUnsub: () => void;
 }
 
 let activeWorkspace: ActiveWorkspace | null = null;
@@ -191,6 +192,11 @@ async function buildSource(config: WorkspaceConfig, store: Store): Promise<Issue
 async function closeActiveWorkspace(): Promise<void> {
   if (!activeWorkspace) return;
   try {
+    activeWorkspace.cooldownUnsub();
+  } catch {
+    // ignore
+  }
+  try {
     activeWorkspace.detachOwnerCleanup();
   } catch {
     // ignore
@@ -310,6 +316,12 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
           authorLogin: config.authorLogin,
         };
 
+  const cooldownUnsub = supervisor.subscribeCooldown((state) => {
+    const sender = mainWindow?.webContents;
+    if (!sender || sender.isDestroyed()) return;
+    sender.send('cooldown:changed', state);
+  });
+
   const subscriptions = createSubscriptionRegistry({
     supervisor,
     forward: (payload) => {
@@ -379,6 +391,7 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
     unregisterHandlers,
     ownerId,
     detachOwnerCleanup,
+    cooldownUnsub,
   };
 
   sentryPoller.start();

@@ -1,7 +1,12 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import type { SpawnFn } from './composer.js';
-import { makeLineSplitter, parseStreamLine, type StreamEvent } from './stream-parser.js';
+import {
+  detectRateLimit,
+  makeLineSplitter,
+  parseStreamLine,
+  type StreamEvent,
+} from './stream-parser.js';
 
 export interface StartAgentRunOptions {
   cwd: string;
@@ -118,8 +123,17 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
       }
     }
   });
+  let rateLimitEmitted = false;
   child.stderr?.on('data', (chunk: Buffer) => {
-    stderr += chunk.toString('utf8');
+    const text = chunk.toString('utf8');
+    stderr += text;
+    if (!rateLimitEmitted) {
+      const rl = detectRateLimit(text);
+      if (rl) {
+        rateLimitEmitted = true;
+        emitter.emit('event', rl);
+      }
+    }
   });
 
   if (child.stdin) {

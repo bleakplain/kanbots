@@ -14,6 +14,7 @@ import * as autopilot from './autopilot.js';
 import * as cards from './cards.js';
 import * as composer from './composer.js';
 import * as config from './config.js';
+import * as cooldown from './cooldown.js';
 import * as cost from './cost.js';
 import * as decisions from './decisions.js';
 import * as issues from './issues.js';
@@ -85,6 +86,7 @@ export function createHandlers(opts: CreateHandlersOptions): Handlers {
     'decisions:pending': () => decisions.pending(deps),
     'cost:today': () => cost.today(deps),
     'cost:usage': () => cost.usage(deps),
+    'cooldown:get': () => cooldown.get(deps),
     'workspace:get': () => workspace.getWorkspace(deps),
     'folders:list': () => workspace.listFolders(deps),
     'folders:add': (args) => workspace.addFolder(deps, args),

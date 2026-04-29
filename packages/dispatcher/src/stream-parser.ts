@@ -1,3 +1,5 @@
+export type RateLimitKind = 'rate_limit' | 'overloaded' | 'quota';
+
 export type StreamEvent =
   | { kind: 'text'; text: string }
   | { kind: 'tool_use'; toolUseId: string; name: string; input: unknown }
@@ -20,6 +22,12 @@ export type StreamEvent =
       tokenUsage: { input: number; output: number } | null;
       durationMs: number | null;
       totalCostUsd: number | null;
+    }
+  | {
+      kind: 'rate_limit';
+      reason: RateLimitKind;
+      retryAfterMs: number | null;
+      message: string;
     }
   | { kind: 'parse_error'; raw: string; message: string };
 
@@ -67,6 +75,8 @@ interface RawResult {
   type: 'result';
   is_error: boolean;
   result?: string;
+  subtype?: string;
+  error?: unknown;
   duration_ms?: number;
   total_cost_usd?: number;
   usage?: {
@@ -104,13 +114,111 @@ export function parseStreamLine(line: string): StreamEvent[] {
       return mapAssistant(parsed as unknown as RawAssistant);
     case 'user':
       return mapUser(parsed as unknown as RawUser);
-    case 'result':
-      return [mapResult(parsed as unknown as RawResult)];
+    case 'result': {
+      const raw = parsed as unknown as RawResult;
+      const result = mapResult(raw);
+      const out: StreamEvent[] = [];
+      if (result.isError) {
+        const rl = detectRateLimit(result.text, raw);
+        if (rl) out.push(rl);
+      }
+      out.push(result);
+      return out;
+    }
     case 'system':
       return mapSystem(parsed as unknown as RawSystemInit);
     default:
       return [];
   }
+}
+
+const RATE_LIMIT_PATTERNS: Array<{ kind: RateLimitKind; re: RegExp }> = [
+  { kind: 'overloaded', re: /overloaded[_ ]error|"overloaded"|\boverloaded\b/i },
+  { kind: 'rate_limit', re: /rate[_ ]limit[_ ]?error|\brate[- ]?limit(ed|ing)?\b|\b429\b|too[_ ]many[_ ]requests/i },
+  { kind: 'quota', re: /quota[_ ]exceeded|\bquota\b/i },
+];
+
+const RETRY_AFTER_PATTERNS: RegExp[] = [
+  /retry[-_ ]after[^\d]{0,12}(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|seconds|m|minutes)?/i,
+  /try again in[^\d]{0,12}(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|seconds|m|minutes)?/i,
+  /resets? (?:in|after)[^\d]{0,12}(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|seconds|m|minutes)?/i,
+];
+
+export function detectRateLimit(
+  text: string,
+  raw?: { error?: unknown; subtype?: unknown },
+): Extract<StreamEvent, { kind: 'rate_limit' }> | null {
+  const haystack = buildRateLimitHaystack(text, raw);
+  if (!haystack) return null;
+  let kind: RateLimitKind | null = null;
+  for (const { kind: k, re } of RATE_LIMIT_PATTERNS) {
+    if (re.test(haystack)) {
+      kind = k;
+      break;
+    }
+  }
+  if (!kind) return null;
+  return {
+    kind: 'rate_limit',
+    reason: kind,
+    retryAfterMs: extractRetryAfterMs(haystack, raw),
+    message: text.slice(0, 500),
+  };
+}
+
+function buildRateLimitHaystack(
+  text: string,
+  raw?: { error?: unknown; subtype?: unknown },
+): string {
+  const parts: string[] = [];
+  if (typeof text === 'string') parts.push(text);
+  if (raw && typeof raw.subtype === 'string') parts.push(raw.subtype);
+  if (raw && raw.error !== undefined) {
+    try {
+      parts.push(typeof raw.error === 'string' ? raw.error : JSON.stringify(raw.error));
+    } catch {
+      // ignore
+    }
+  }
+  return parts.join('\n');
+}
+
+function extractRetryAfterMs(
+  haystack: string,
+  raw?: { error?: unknown },
+): number | null {
+  // Prefer a structured retry_after on the error object if present.
+  if (raw && isObject(raw.error)) {
+    const errObj = raw.error as Record<string, unknown>;
+    const candidates: unknown[] = [
+      errObj.retry_after_ms,
+      errObj.retryAfterMs,
+      errObj.retry_after,
+      errObj.retryAfter,
+    ];
+    for (const c of candidates) {
+      if (typeof c === 'number' && Number.isFinite(c) && c >= 0) {
+        // retry_after_ms is unambiguously ms; the others are seconds by convention.
+        const isMsField = c === errObj.retry_after_ms || c === errObj.retryAfterMs;
+        return Math.round(isMsField ? c : c * 1000);
+      }
+      if (typeof c === 'string') {
+        const n = Number(c);
+        if (Number.isFinite(n) && n >= 0) return Math.round(n * 1000);
+      }
+    }
+  }
+  for (const re of RETRY_AFTER_PATTERNS) {
+    const m = haystack.match(re);
+    if (!m) continue;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n) || n < 0) continue;
+    const unit = (m[2] ?? 's').toLowerCase();
+    if (unit === 'ms' || unit === 'milliseconds') return Math.round(n);
+    if (unit === 'm' || unit === 'minutes') return Math.round(n * 60_000);
+    return Math.round(n * 1000);
+  }
+  return null;
 }
 
 function mapSystem(raw: RawSystemInit): StreamEvent[] {
@@ -209,7 +317,7 @@ function mapUser(raw: RawUser): StreamEvent[] {
   return out;
 }
 
-function mapResult(raw: RawResult): StreamEvent {
+function mapResult(raw: RawResult): Extract<StreamEvent, { kind: 'result' }> {
   const tokenUsage =
     raw.usage &&
     typeof raw.usage.input_tokens === 'number' &&

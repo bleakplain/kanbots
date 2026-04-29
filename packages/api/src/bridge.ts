@@ -322,6 +322,14 @@ export interface CostUsageResult {
   source: 'oauth' | 'unauthorized' | 'unavailable';
 }
 
+export interface CooldownStatePayload {
+  active: boolean;
+  until: string | null;
+  reason: 'rate_limit' | 'overloaded' | 'quota' | null;
+  consecutiveHits: number;
+  message: string | null;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -495,6 +503,7 @@ export interface BridgeChannels {
   'decisions:pending': { args: void; result: PendingDecisionPayload[] };
   'cost:today': { args: void; result: CostTodayResult };
   'cost:usage': { args: void; result: CostUsageResult };
+  'cooldown:get': { args: void; result: CooldownStatePayload };
   'workspace:get': { args: void; result: Workspace };
   'folders:list': { args: void; result: WorkspaceFolderPayload[] };
   'folders:add': {

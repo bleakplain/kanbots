@@ -221,6 +221,21 @@ export function makeStubSupervisor(store: Store): StubSupervisor {
         subscribers.set(runId, next);
       };
     },
+    getCooldown() {
+      return {
+        active: false,
+        until: null,
+        reason: null,
+        consecutiveHits: 0,
+        message: null,
+      };
+    },
+    subscribeCooldown() {
+      return () => {};
+    },
+    async waitForCooldown() {
+      // no-op in tests
+    },
   };
 
   return Object.assign(supervisor, {
