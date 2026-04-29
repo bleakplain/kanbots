@@ -17,6 +17,7 @@ import {
   type Worktree,
 } from '@kanbots/dispatcher';
 import type { AgentEvent, AgentRun, AgentRunStatus, Card, Store } from '@kanbots/local-store';
+import { BRIEFING_MARKER, renderSiblingBriefing } from './sibling-briefing.js';
 
 const DEFAULT_DECISION_PROMPT = `When you need a decision from the user before continuing, end your turn with a fenced code block:
 
@@ -139,9 +140,24 @@ export function createSupervisor(opts: CreateSupervisorOptions): AgentSupervisor
   const statusChannel = (runId: number): string => `status:${runId}`;
   const cardChannel = (runId: number): string => `card:${runId}`;
 
-  function composeSystemPrompt(extra: string | undefined): string {
-    if (!extra) return decisionInstructions;
-    return `${decisionInstructions}\n\n${extra}`;
+  function composeSystemPrompt(
+    currentRunId: number,
+    extra: string | undefined,
+  ): { prompt: string; briefing: string | null } {
+    const briefing = renderSiblingBriefing(store, currentRunId);
+    const parts = [decisionInstructions];
+    if (briefing) parts.push(briefing);
+    if (extra) parts.push(extra);
+    return { prompt: parts.join('\n\n'), briefing };
+  }
+
+  function persistBriefing(runId: number, briefing: string | null): void {
+    if (!briefing) return;
+    store.events.append({
+      agentRunId: runId,
+      type: 'text',
+      payload: { text: `${BRIEFING_MARKER}\n${briefing}` },
+    });
   }
 
   function ensureAgentMessage(threadId: number, runId: number, body: string): number {
@@ -309,11 +325,12 @@ export function createSupervisor(opts: CreateSupervisorOptions): AgentSupervisor
       ...(input.model !== undefined ? { model: input.model } : {}),
     });
 
-    const appendPrompt = composeSystemPrompt(input.appendSystemPrompt);
+    const composed = composeSystemPrompt(run.id, input.appendSystemPrompt);
+    persistBriefing(run.id, composed.briefing);
     const handle = startAgent({
       cwd: worktreePath,
       prompt: input.prompt,
-      appendSystemPrompt: appendPrompt,
+      appendSystemPrompt: composed.prompt,
       ...(input.model !== undefined ? { model: input.model } : {}),
     });
 
@@ -342,11 +359,13 @@ export function createSupervisor(opts: CreateSupervisorOptions): AgentSupervisor
       throw new Error(`agent run ${input.runId} has no worktree`);
     }
 
+    const composed = composeSystemPrompt(input.runId, input.appendSystemPrompt);
+    persistBriefing(input.runId, composed.briefing);
     const handle = startAgent({
       cwd: existing.worktreePath,
       prompt: input.prompt,
       resumeFromSessionId: existing.sessionId,
-      appendSystemPrompt: composeSystemPrompt(input.appendSystemPrompt),
+      appendSystemPrompt: composed.prompt,
     });
 
     const run = store.agentRuns.update(input.runId, {

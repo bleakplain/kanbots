@@ -215,6 +215,22 @@ export class AgentRunsRepo {
     return row.sum;
   }
 
+  listActive(): Array<AgentRun & { issueNumber: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT ar.*, t.issue_number AS issue_number_alias
+         FROM agent_runs ar
+         JOIN threads t ON ar.thread_id = t.id
+         WHERE ar.status IN ${ACTIVE_STATUSES}
+         ORDER BY ar.id`,
+      )
+      .all() as Array<AgentRunRow & { issue_number_alias: number }>;
+    return rows.map((row) => ({
+      ...rowToAgentRun(row),
+      issueNumber: row.issue_number_alias,
+    }));
+  }
+
   listActiveForRepo(repoOwner: string, repoName: string): Array<AgentRun & { issueNumber: number }> {
     const rows = this.db
       .prepare(
