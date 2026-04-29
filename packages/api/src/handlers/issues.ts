@@ -499,7 +499,9 @@ export function buildActiveRunMap(
               typeof o?.value === 'string' && typeof o?.label === 'string',
           )
           .map((o) => ({ value: o.value, label: o.label }));
-        if (options.length > 0) decision = { question: p.question, options };
+        if (options.length > 0) {
+          decision = { cardId: card.id, question: p.question, options };
+        }
       }
     }
     const checkMap = checksByRun.get(row.id);

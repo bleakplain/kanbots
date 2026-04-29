@@ -210,7 +210,11 @@ export interface IssueActiveRunPayload {
   currentArg: string | null;
   totalCostUsd: number | null;
   pendingDecision:
-    | { question: string; options: Array<{ value: string; label: string }> }
+    | {
+        cardId: number;
+        question: string;
+        options: Array<{ value: string; label: string }>;
+      }
     | null;
   checks: {
     typecheck: 'pass' | 'fail' | 'running' | 'idle';

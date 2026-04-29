@@ -195,7 +195,11 @@ function applyCard(
     const next = new Map(prev);
     next.set(runId, {
       ...cur,
-      pendingDecision: { question: p.question as string, options: opts },
+      pendingDecision: {
+        cardId: card.id,
+        question: p.question as string,
+        options: opts,
+      },
     });
     return next;
   });

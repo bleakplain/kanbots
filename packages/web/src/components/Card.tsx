@@ -1,5 +1,5 @@
 import { useDraggable } from '@dnd-kit/core';
-import { memo, type MouseEvent } from 'react';
+import { memo, useState, type MouseEvent } from 'react';
 import { api } from '../api.js';
 import { dispatchIssuesRefetch } from '../hooks/useIssues.js';
 import {
@@ -126,12 +126,15 @@ function CardBody({
       ) : null}
 
       {isBlocked && decision ? (
-        <div className="kb-card-decision" aria-label="Agent question">
-          <div className="kb-q-icon" aria-hidden>
-            ?
+        <>
+          <div className="kb-card-decision" aria-label="Agent question">
+            <div className="kb-q-icon" aria-hidden>
+              ?
+            </div>
+            <div className="kb-q-text">{decision.question}</div>
           </div>
-          <div className="kb-q-text">{decision.question}</div>
-        </div>
+          <DecisionActions cardId={decision.cardId} options={decision.options} />
+        </>
       ) : null}
 
       {(isRunning || isReview) && progress !== null ? (
@@ -240,6 +243,73 @@ function ReviewActions({
       </button>
       <button type="button" className="kb-btn ghost" onClick={spawnReviewer}>
         Run reviewer
+      </button>
+    </div>
+  );
+}
+
+const DECISION_RESOLVED_EVENT = 'kanbots:decision-resolved';
+
+function DecisionActions({
+  cardId,
+  options,
+}: {
+  cardId: number;
+  options: Array<{ value: string; label: string }>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+
+  function stop(e: MouseEvent<HTMLDivElement>): void {
+    e.stopPropagation();
+  }
+
+  async function pick(e: MouseEvent<HTMLButtonElement>, value: string): Promise<void> {
+    e.stopPropagation();
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await api.resolveCard(cardId, value);
+      window.dispatchEvent(new CustomEvent(DECISION_RESOLVED_EVENT));
+      dispatchIssuesRefetch();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function dismiss(e: MouseEvent<HTMLButtonElement>): Promise<void> {
+    e.stopPropagation();
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await api.dismissCard(cardId);
+      window.dispatchEvent(new CustomEvent(DECISION_RESOLVED_EVENT));
+      dispatchIssuesRefetch();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="kb-card-actions" onClick={stop} role="group" aria-label="Decision options">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          className="kb-btn primary"
+          disabled={submitting}
+          onClick={(e) => void pick(e, opt.value)}
+        >
+          {submitting ? '…' : opt.label}
+        </button>
+      ))}
+      <button
+        type="button"
+        className="kb-btn ghost"
+        disabled={submitting}
+        onClick={(e) => void dismiss(e)}
+        title="Dismiss this decision and stop the run"
+      >
+        Dismiss
       </button>
     </div>
   );
