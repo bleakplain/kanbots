@@ -26,10 +26,16 @@ export interface RunSummary {
   exitCode: number | null;
   result: RunResult | null;
   killedByStop: boolean;
+  escalatedToKill: boolean;
   stderr: string;
 }
 
 export type AgentRunEventName = 'event' | 'close' | 'error';
+
+export interface StopOptions {
+  signal?: NodeJS.Signals;
+  gracefulTimeoutMs?: number;
+}
 
 export interface AgentRunHandle {
   pid: number | null;
@@ -37,9 +43,11 @@ export interface AgentRunHandle {
   on(event: 'close', handler: (summary: RunSummary) => void): this;
   on(event: 'error', handler: (err: Error) => void): this;
   off(event: AgentRunEventName, handler: (...args: unknown[]) => void): this;
-  stop(signal?: NodeJS.Signals): void;
+  stop(opts?: StopOptions | NodeJS.Signals): void;
   done: Promise<RunSummary>;
 }
+
+export const DEFAULT_GRACEFUL_TIMEOUT_MS = 10_000;
 
 export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
   const command = opts.command ?? 'claude';
@@ -71,7 +79,16 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
 
   let result: RunResult | null = null;
   let killedByStop = false;
+  let escalatedToKill = false;
+  let killTimer: NodeJS.Timeout | null = null;
   let stderr = '';
+
+  const clearKillTimer = (): void => {
+    if (killTimer !== null) {
+      clearTimeout(killTimer);
+      killTimer = null;
+    }
+  };
 
   const splitter = makeLineSplitter();
   child.stdout?.on('data', (chunk: Buffer) => {
@@ -106,11 +123,13 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
     child.on('error', (err) => {
       if (settled) return;
       settled = true;
+      clearKillTimer();
       emitter.emit('error', err);
       const summary: RunSummary = {
         exitCode: null,
         result,
         killedByStop,
+        escalatedToKill,
         stderr,
       };
       emitter.emit('close', summary);
@@ -119,10 +138,12 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
     child.on('close', (code) => {
       if (settled) return;
       settled = true;
+      clearKillTimer();
       const summary: RunSummary = {
         exitCode: code ?? null,
         result,
         killedByStop,
+        escalatedToKill,
         stderr,
       };
       emitter.emit('close', summary);
@@ -140,10 +161,26 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
       emitter.off(event, handler);
       return handle;
     },
-    stop(signal: NodeJS.Signals = 'SIGTERM'): void {
+    stop(arg?: StopOptions | NodeJS.Signals): void {
       if (killedByStop) return;
       killedByStop = true;
+      const stopOpts: StopOptions =
+        typeof arg === 'string' ? { signal: arg } : (arg ?? {});
+      const signal = stopOpts.signal ?? 'SIGTERM';
+      const gracefulTimeoutMs = stopOpts.gracefulTimeoutMs ?? DEFAULT_GRACEFUL_TIMEOUT_MS;
       child.kill(signal);
+      if (signal === 'SIGKILL' || gracefulTimeoutMs <= 0) return;
+      killTimer = setTimeout(() => {
+        killTimer = null;
+        escalatedToKill = true;
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // child may already be gone; close handler will settle naturally
+        }
+      }, gracefulTimeoutMs);
+      // Ensure the timer doesn't keep the event loop alive on its own.
+      if (typeof killTimer.unref === 'function') killTimer.unref();
     },
     done,
   };

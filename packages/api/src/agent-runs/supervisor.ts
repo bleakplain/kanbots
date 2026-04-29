@@ -5,6 +5,7 @@ import {
   createWorktree as defaultCreateWorktree,
   defaultBranchName,
   defaultWorktreePath,
+  DEFAULT_GRACEFUL_TIMEOUT_MS,
   startAgentRun as defaultStartAgentRun,
   type AgentRunHandle,
   type CreateWorktreeInput,
@@ -36,7 +37,15 @@ export interface CreateSupervisorOptions {
   prepareWorktreeDir?: (path: string) => Promise<void>;
   appendSystemPromptDefault?: string;
   onRunComplete?: (run: AgentRun) => Promise<void> | void;
+  /**
+   * Maximum time to wait after SIGTERM before escalating to SIGKILL during stop().
+   * The supervisor's stop() Promise is also bounded by this (plus a small slack)
+   * so callers cannot deadlock on an unkillable child.
+   */
+  stopGracefulTimeoutMs?: number;
 }
+
+const STOP_FORCE_RESOLVE_SLACK_MS = 2_000;
 
 export interface StartRunInput {
   threadId: number;
@@ -105,6 +114,7 @@ export function createSupervisor(opts: CreateSupervisorOptions): AgentSupervisor
   const makeWorktree = opts.createWorktree ?? defaultCreateWorktree;
   const prepareDir = opts.prepareWorktreeDir ?? defaultPrepareDir;
   const decisionInstructions = opts.appendSystemPromptDefault ?? DEFAULT_DECISION_PROMPT;
+  const stopGracefulTimeoutMs = opts.stopGracefulTimeoutMs ?? DEFAULT_GRACEFUL_TIMEOUT_MS;
 
   // Any 'starting'/'running' rows on construction belong to a previous app
   // process — the supervisor's in-memory handles don't survive restart, so
@@ -206,7 +216,9 @@ export function createSupervisor(opts: CreateSupervisorOptions): AgentSupervisor
       const status: AgentRunStatus =
         entry.hasDecision && naturalStatus === 'complete' ? 'awaiting_input' : naturalStatus;
       const exitReason = summary.killedByStop
-        ? 'stopped by user'
+        ? summary.escalatedToKill
+          ? `stopped by user (SIGKILL after ${stopGracefulTimeoutMs}ms)`
+          : 'stopped by user'
         : summary.exitCode !== 0
           ? `exit code ${summary.exitCode ?? 'null'}: ${truncate(summary.stderr, 500)}`
           : null;
@@ -339,8 +351,33 @@ export function createSupervisor(opts: CreateSupervisorOptions): AgentSupervisor
   async function stop(runId: number): Promise<AgentRun> {
     const entry = active.get(runId);
     if (entry) {
-      entry.handle.stop();
-      await entry.handle.done;
+      entry.handle.stop({ gracefulTimeoutMs: stopGracefulTimeoutMs });
+      const forceResolveAt = stopGracefulTimeoutMs + STOP_FORCE_RESOLVE_SLACK_MS;
+      let timer: NodeJS.Timeout | null = null;
+      const guarded = new Promise<'timeout'>((resolveTimeout) => {
+        timer = setTimeout(() => resolveTimeout('timeout'), forceResolveAt);
+        if (timer && typeof timer.unref === 'function') timer.unref();
+      });
+      const outcome = await Promise.race([
+        entry.handle.done.then(() => 'done' as const),
+        guarded,
+      ]);
+      if (timer) clearTimeout(timer);
+      if (outcome === 'timeout' && active.has(runId)) {
+        // Child is unkillable (e.g. <defunct> waiting on a zombie parent).
+        // Force the run out of an active state so the slot is freed and the
+        // caller doesn't deadlock. Clean up the in-memory entry; if the close
+        // handler fires later, active.delete will be a no-op.
+        active.delete(runId);
+        store.agentRuns.update(runId, {
+          status: 'stopped',
+          endedAt: new Date().toISOString(),
+          pid: null,
+          exitReason: `stopped by user (forced after ${forceResolveAt}ms; child unresponsive)`,
+        });
+        store.cards.dismissPendingDecisionsForRun(runId);
+        emitter.emit(statusChannel(runId), 'stopped' as AgentRunStatus);
+      }
       const run = store.agentRuns.findById(runId);
       if (!run) throw new Error(`agent run ${runId} not found`);
       return run;

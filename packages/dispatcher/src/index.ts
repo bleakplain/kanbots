@@ -30,10 +30,12 @@ export { parseStreamLine, makeLineSplitter, type StreamEvent } from './stream-pa
 
 export {
   startAgentRun,
+  DEFAULT_GRACEFUL_TIMEOUT_MS,
   type AgentRunHandle,
   type RunResult,
   type RunSummary,
   type StartAgentRunOptions,
+  type StopOptions,
 } from './worker.js';
 
 export {
