@@ -21,6 +21,19 @@ function fmtElapsed(startIso: string, endIso?: string | null): string {
   return `${m}m ${String(s).padStart(2, '0')}s`;
 }
 
+function fmtCost(spent: number | null | undefined, budget: number | null | undefined): ReactNode {
+  const spentStr = spent != null ? `$${spent.toFixed(2)}` : '—';
+  if (budget == null) return spentStr;
+  const ratio = spent != null && budget > 0 ? Math.min(1, spent / budget) : 0;
+  const overBudget = spent != null && spent >= budget;
+  const cls = overBudget ? 'kb-cost-over' : ratio >= 0.8 ? 'kb-cost-warn' : '';
+  return (
+    <span className={cls} title={`Cost budget: $${budget.toFixed(2)}`}>
+      {spentStr} <small>/ ${budget.toFixed(2)}</small>
+    </span>
+  );
+}
+
 function fmtTokens(n: number | null | undefined): string {
   if (n === null || n === undefined) return '—';
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -114,10 +127,7 @@ export function RunSummary({ run, layout = 'inspector', onRunChecks }: RunSummar
             </>
           }
         />
-        <Stat
-          k="Cost"
-          v={run.totalCostUsd != null ? `$${run.totalCostUsd.toFixed(2)}` : '—'}
-        />
+        <Stat k="Cost" v={fmtCost(run.totalCostUsd, run.costBudgetUsd)} />
       </div>
       <div className="kb-run-checks">
         <CheckPill kind="tsc" check={tsc} />

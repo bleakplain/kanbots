@@ -115,6 +115,7 @@ export {
   type KanbotsDir,
   type LocalWorkspaceConfig,
   type WorkspaceConfig,
+  type WorkspaceDefaults,
   type WorkspaceMode,
 } from './workspace.js';
 

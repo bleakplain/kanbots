@@ -9,6 +9,7 @@ import { migration as m0008 } from './0008-agent-preview.js';
 import { migration as m0009 } from './0009-autopilot-sessions.js';
 import { migration as m0010 } from './0010-sentry.js';
 import { migration as m0011 } from './0011-agent-stop-escalation.js';
+import { migration as m0012 } from './0012-cost-budget.js';
 import type { Migration } from './types.js';
 
 export const migrations: readonly Migration[] = [
@@ -23,6 +24,7 @@ export const migrations: readonly Migration[] = [
   m0009,
   m0010,
   m0011,
+  m0012,
 ];
 
 export type { Migration };

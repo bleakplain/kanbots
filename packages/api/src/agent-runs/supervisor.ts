@@ -53,6 +53,15 @@ export interface CreateSupervisorOptions {
   ) => Promise<StampWorktreeIdentityResult>;
   prepareWorktreeDir?: (path: string) => Promise<void>;
   appendSystemPromptDefault?: string;
+  /**
+   * Default per-run cost budget in USD. When a run is started without an
+   * explicit costBudgetUsd, this default is applied. The supervisor stops
+   * a run as soon as agent_runs.total_cost_usd >= budget. Cap is best-effort:
+   * it fires between turns (on `result` events), so a long in-flight tool
+   * call can overshoot. Pass a function to read it dynamically (so changes
+   * to workspace defaults take effect on subsequent runs).
+   */
+  defaultRunCostBudgetUsd?: number | null | (() => number | null | undefined);
   onRunComplete?: (run: AgentRun) => Promise<void> | void;
   /**
    * Maximum time to wait after SIGTERM before escalating to SIGKILL during stop().
@@ -75,12 +84,14 @@ export interface StartRunInput {
   prompt: string;
   appendSystemPrompt?: string;
   model?: string;
+  costBudgetUsd?: number | null;
 }
 
 export interface ResumeRunInput {
   runId: number;
   prompt: string;
   appendSystemPrompt?: string;
+  costBudgetUsd?: number | null;
 }
 
 export type AgentEventListener = (event: AgentEvent) => void;
@@ -140,6 +151,14 @@ interface ActiveRun {
   threadId: number;
   worktreePath: string | null;
   containmentPaused: boolean;
+  /**
+   * Cumulative cost as observed across `result` stream events. The dispatcher
+   * emits one `result` per turn; a single `claude -p` process typically emits
+   * one. We accumulate so resumed sessions stay bounded.
+   */
+  costSoFarUsd: number;
+  budgetUsd: number | null;
+  budgetExceeded: boolean;
 }
 
 const ACTIVE_STATUSES: ReadonlyArray<AgentRunStatus> = ['starting', 'running', 'awaiting_input'];
@@ -173,6 +192,24 @@ export async function createSupervisor(
   const decisionInstructions = opts.appendSystemPromptDefault ?? DEFAULT_DECISION_PROMPT;
   const stopGracefulTimeoutMs = opts.stopGracefulTimeoutMs ?? DEFAULT_GRACEFUL_TIMEOUT_MS;
   const containmentMode: ContainmentMode = opts.containmentMode ?? 'warn';
+
+  function readDefaultBudget(): number | null {
+    const raw = opts.defaultRunCostBudgetUsd;
+    if (typeof raw === 'function') {
+      const value = raw();
+      return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+    }
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw;
+    return null;
+  }
+
+  function resolveBudget(explicit: number | null | undefined): number | null {
+    if (explicit === null) return null;
+    if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit > 0) {
+      return explicit;
+    }
+    return readDefaultBudget();
+  }
 
   // Any 'starting'/'running' rows on construction belong to a previous app
   // process — the supervisor's in-memory handles don't survive restart, so
@@ -345,6 +382,9 @@ export async function createSupervisor(
       threadId: run.threadId,
       worktreePath: run.worktreePath,
       containmentPaused: false,
+      costSoFarUsd: run.totalCostUsd ?? 0,
+      budgetUsd: run.costBudgetUsd ?? null,
+      budgetExceeded: false,
     };
     active.set(run.id, entry);
 
@@ -369,6 +409,31 @@ export async function createSupervisor(
           sessionId: streamEvent.sessionId,
           ...(streamEvent.model !== null ? { model: streamEvent.model } : {}),
         });
+        return;
+      }
+      if (streamEvent.kind === 'result') {
+        // Best-effort cost cap: total_cost_usd only arrives at turn boundaries,
+        // so a runaway tool call within a turn can overshoot before we get a
+        // chance to stop. Acceptable tradeoff for between-turn enforcement.
+        if (streamEvent.totalCostUsd !== null) {
+          entry.costSoFarUsd += streamEvent.totalCostUsd;
+          store.agentRuns.update(run.id, { totalCostUsd: entry.costSoFarUsd });
+        }
+        if (
+          !entry.budgetExceeded &&
+          entry.budgetUsd !== null &&
+          entry.costSoFarUsd >= entry.budgetUsd
+        ) {
+          entry.budgetExceeded = true;
+          store.agentRuns.update(run.id, {
+            exitReason: `cost budget exceeded ($${entry.costSoFarUsd.toFixed(4)} / $${entry.budgetUsd.toFixed(2)})`,
+          });
+          try {
+            entry.handle.stop();
+          } catch {
+            // best-effort
+          }
+        }
         return;
       }
       if (streamEvent.kind === 'decision') {
@@ -416,15 +481,23 @@ export async function createSupervisor(
           : summary.exitCode === 0
             ? 'complete'
             : 'failed';
-      const status: AgentRunStatus =
-        entry.hasDecision && naturalStatus === 'complete' ? 'awaiting_input' : naturalStatus;
-      const exitReason = summary.killedByStop
-        ? summary.stopEscalation === 'sigkill'
-          ? `stopped by user (SIGKILL after ${stopGracefulTimeoutMs}ms)`
-          : 'stopped by user'
-        : summary.exitCode !== 0
-          ? `exit code ${summary.exitCode ?? 'null'}: ${truncate(summary.stderr, 500)}`
-          : null;
+      const budgetReason = entry.budgetExceeded
+        ? `cost budget exceeded ($${entry.costSoFarUsd.toFixed(4)} / $${(entry.budgetUsd ?? 0).toFixed(2)})`
+        : null;
+      const status: AgentRunStatus = budgetReason
+        ? 'stopped'
+        : entry.hasDecision && naturalStatus === 'complete'
+          ? 'awaiting_input'
+          : naturalStatus;
+      const exitReason = budgetReason
+        ? `interrupted: ${budgetReason}`
+        : summary.killedByStop
+          ? summary.stopEscalation === 'sigkill'
+            ? `stopped by user (SIGKILL after ${stopGracefulTimeoutMs}ms)`
+            : 'stopped by user'
+          : summary.exitCode !== 0
+            ? `exit code ${summary.exitCode ?? 'null'}: ${truncate(summary.stderr, 500)}`
+            : null;
 
       const updated = store.agentRuns.update(run.id, {
         status,
@@ -437,7 +510,11 @@ export async function createSupervisor(
               tokenUsageOutput: summary.result.tokenUsage.output,
             }
           : {}),
-        ...(summary.result?.totalCostUsd !== undefined && summary.result?.totalCostUsd !== null
+        // Cumulative cost is already tracked across `result` events; only
+        // backfill from the final summary if we never saw a result event.
+        ...(entry.costSoFarUsd === 0 &&
+        summary.result?.totalCostUsd !== undefined &&
+        summary.result?.totalCostUsd !== null
           ? { totalCostUsd: summary.result.totalCostUsd }
           : {}),
         ...(summary.result?.durationMs !== undefined && summary.result?.durationMs !== null
@@ -553,10 +630,12 @@ export async function createSupervisor(
       return run;
     }
 
+    const budget = resolveBudget(input.costBudgetUsd);
     run = store.agentRuns.update(run.id, {
       worktreePath,
       branchName: branch,
       ...(input.model !== undefined ? { model: input.model } : {}),
+      ...(budget !== null ? { costBudgetUsd: budget } : {}),
     });
 
     const composed = composeSystemPrompt(run.id, input.appendSystemPrompt);
@@ -609,6 +688,7 @@ export async function createSupervisor(
       endedAt: null,
       exitReason: null,
       pid: handle.pid,
+      ...(input.costBudgetUsd !== undefined ? { costBudgetUsd: input.costBudgetUsd } : {}),
     });
     wireHandle(run, handle);
     emitter.emit(statusChannel(run.id), run.status);

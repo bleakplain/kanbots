@@ -88,6 +88,8 @@ export function createHandlers(opts: CreateHandlersOptions): Handlers {
     'cost:usage': () => cost.usage(deps),
     'cooldown:get': () => cooldown.get(deps),
     'workspace:get': () => workspace.getWorkspace(deps),
+    'workspace:get-budgets': () => workspace.getBudgets(deps),
+    'workspace:set-budgets': (args) => workspace.setBudgets(deps, args),
     'folders:list': () => workspace.listFolders(deps),
     'folders:add': (args) => workspace.addFolder(deps, args),
     'composer:draft': (args) => composer.draft(deps, args),

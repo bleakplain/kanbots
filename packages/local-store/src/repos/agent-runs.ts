@@ -17,6 +17,7 @@ interface AgentRunRow {
   session_id: string | null;
   model: string | null;
   total_cost_usd: number | null;
+  cost_budget_usd: number | null;
   duration_ms: number | null;
   preview_url: string | null;
   preview_state: string | null;
@@ -40,6 +41,7 @@ function rowToAgentRun(row: AgentRunRow): AgentRun {
     sessionId: row.session_id,
     model: row.model,
     totalCostUsd: row.total_cost_usd,
+    costBudgetUsd: row.cost_budget_usd,
     durationMs: row.duration_ms,
     previewUrl: row.preview_url,
     previewState: (row.preview_state as PreviewState | null) ?? null,
@@ -67,6 +69,7 @@ export interface UpdateAgentRunPatch {
   sessionId?: string | null;
   model?: string | null;
   totalCostUsd?: number | null;
+  costBudgetUsd?: number | null;
   durationMs?: number | null;
   previewUrl?: string | null;
   previewState?: PreviewState | null;
@@ -86,6 +89,7 @@ const PATCH_COLUMNS: Record<keyof UpdateAgentRunPatch, string> = {
   sessionId: 'session_id',
   model: 'model',
   totalCostUsd: 'total_cost_usd',
+  costBudgetUsd: 'cost_budget_usd',
   durationMs: 'duration_ms',
   previewUrl: 'preview_url',
   previewState: 'preview_state',
@@ -126,6 +130,7 @@ export class AgentRunsRepo {
       sessionId: null,
       model: null,
       totalCostUsd: null,
+      costBudgetUsd: null,
       durationMs: null,
       previewUrl: null,
       previewState: null,
@@ -216,6 +221,17 @@ export class AgentRunsRepo {
     });
     txn(rows.map((r) => r.id));
     return rows.map((r) => ({ ...rowToAgentRun(r), status: 'failed', endedAt, pid: null, exitReason: reason }));
+  }
+
+  sumCostByIds(ids: readonly number[]): number {
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => '?').join(',');
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(total_cost_usd), 0) AS sum FROM agent_runs WHERE id IN (${placeholders})`,
+      )
+      .get(...ids) as { sum: number };
+    return row.sum;
   }
 
   sumCostSince(isoDate: string): number {

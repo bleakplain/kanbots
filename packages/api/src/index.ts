@@ -109,5 +109,6 @@ export type {
   UpdateIssuePatch,
   UploadAttachmentResult,
   Workspace,
+  WorkspaceBudgets,
   WorkspaceFolderPayload,
 } from './bridge.js';

@@ -30,6 +30,7 @@ import type {
   StatusKey,
   UpdateIssuePatch,
   Workspace,
+  WorkspaceBudgets,
   WorkspaceFolderPayload,
 } from './types.js';
 
@@ -190,6 +191,10 @@ export const api = {
   listPendingDecisions: (): Promise<PendingDecisionPayload[]> =>
     invoke('decisions:pending', undefined),
   workspace: (): Promise<Workspace> => invoke('workspace:get', undefined),
+  getWorkspaceBudgets: (): Promise<WorkspaceBudgets> =>
+    invoke('workspace:get-budgets', undefined),
+  setWorkspaceBudgets: (input: WorkspaceBudgets): Promise<WorkspaceBudgets> =>
+    invoke('workspace:set-budgets', input),
   listFolders: (): Promise<WorkspaceFolderPayload[]> => invoke('folders:list', undefined),
   addFolder: (input: {
     name: string;

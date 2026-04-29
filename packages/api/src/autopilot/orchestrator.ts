@@ -23,6 +23,13 @@ export interface AutopilotManagerOpts {
   suggestIssue: SuggestFeatureFn;
   repoPath: string;
   repoConfig: AutopilotRepoConfig;
+  /**
+   * Default per-session cost budget (USD). Applied when a session config
+   * doesn't specify its own. The orchestrator aborts the loop once the sum
+   * of children's total_cost_usd crosses the cap. Best-effort: cost only
+   * settles when each child completes.
+   */
+  defaultSessionCostBudgetUsd?: number | null | (() => number | null | undefined);
   onSessionChange?: (session: AutopilotSession) => void;
 }
 
@@ -61,6 +68,26 @@ export interface OrchestratorContext {
   repoConfig: AutopilotRepoConfig;
   notify: (session: AutopilotSession) => void;
   setCurrentChildRunId: (sessionId: number, runId: number | null) => AutopilotSession;
+  resolveSessionBudget: (config: AutopilotSession['config']) => number | null;
+}
+
+export interface SessionBudgetExceeded {
+  type: 'session-budget-exceeded';
+  spent: number;
+  budget: number;
+  reason: string;
+}
+
+export class SessionBudgetExceededError extends Error implements SessionBudgetExceeded {
+  readonly type = 'session-budget-exceeded' as const;
+  constructor(
+    readonly spent: number,
+    readonly budget: number,
+    readonly reason: string,
+  ) {
+    super(reason);
+    this.name = 'SessionBudgetExceededError';
+  }
 }
 
 export function createAutopilotManager(opts: AutopilotManagerOpts): AutopilotManager {
@@ -82,6 +109,25 @@ export function createAutopilotManager(opts: AutopilotManagerOpts): AutopilotMan
     return updated;
   }
 
+  function readDefaultSessionBudget(): number | null {
+    const raw = opts.defaultSessionCostBudgetUsd;
+    if (typeof raw === 'function') {
+      const value = raw();
+      return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+    }
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw;
+    return null;
+  }
+
+  function resolveSessionBudget(config: AutopilotSession['config']): number | null {
+    const explicit = config.sessionCostBudgetUsd;
+    if (explicit === null) return null;
+    if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit > 0) {
+      return explicit;
+    }
+    return readDefaultSessionBudget();
+  }
+
   const ctx: OrchestratorContext = {
     store,
     source,
@@ -91,6 +137,7 @@ export function createAutopilotManager(opts: AutopilotManagerOpts): AutopilotMan
     repoConfig,
     notify,
     setCurrentChildRunId,
+    resolveSessionBudget,
   };
 
   async function start(input: StartAutopilotInput): Promise<StartAutopilotResult> {
@@ -116,6 +163,16 @@ export function createAutopilotManager(opts: AutopilotManagerOpts): AutopilotMan
 
     const controller = new AbortController();
     const done = runLoop(input.kind, session, controller.signal).catch((err) => {
+      if (err instanceof SessionBudgetExceededError) {
+        const stopped = store.autopilotSessions.update(session.id, {
+          status: 'stopped',
+          endedAt: new Date().toISOString(),
+          stopReason: err.reason,
+          currentChildRunId: null,
+        });
+        notify(stopped);
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       const failed = store.autopilotSessions.update(session.id, {
         status: 'failed',
@@ -134,6 +191,7 @@ export function createAutopilotManager(opts: AutopilotManagerOpts): AutopilotMan
     session: AutopilotSession,
     signal: AbortSignal,
   ): Promise<void> {
+    let budgetError: SessionBudgetExceededError | null = null;
     try {
       if (kind === 'feature-dev') {
         await runFeatureDevLoop(ctx, session, signal);
@@ -141,13 +199,24 @@ export function createAutopilotManager(opts: AutopilotManagerOpts): AutopilotMan
         // QA modes ship in v2/v3.
         throw new Error(`Autopilot kind '${kind}' is not implemented yet`);
       }
+    } catch (err) {
+      if (err instanceof SessionBudgetExceededError) {
+        budgetError = err;
+      } else {
+        throw err;
+      }
     } finally {
       const finalSession = store.autopilotSessions.findById(session.id);
       if (finalSession && finalSession.status === 'running') {
+        const stopReason = budgetError
+          ? budgetError.reason
+          : signal.aborted
+            ? finalSession.stopReason ?? 'stopped'
+            : null;
         const settled = store.autopilotSessions.update(session.id, {
-          status: signal.aborted ? 'stopped' : 'completed',
+          status: budgetError || signal.aborted ? 'stopped' : 'completed',
           endedAt: new Date().toISOString(),
-          stopReason: signal.aborted ? finalSession.stopReason ?? 'stopped' : null,
+          stopReason,
           currentChildRunId: null,
         });
         notify(settled);

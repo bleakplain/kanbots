@@ -28,6 +28,7 @@ const featureDevConfigSchema = z
     model: z.string().min(1).max(120).optional(),
     effort: effortSchema.optional(),
     parallelism: z.number().int().min(1).max(4).optional(),
+    sessionCostBudgetUsd: z.number().positive().optional(),
   })
   .strict();
 
@@ -40,6 +41,7 @@ const qaConfigSchema = z
       .object({ command: z.string().min(1), args: z.array(z.string()) })
       .strict()
       .optional(),
+    sessionCostBudgetUsd: z.number().positive().optional(),
   })
   .strict()
   .refine((c) => c.checks.length > 0 || c.liveUi, {

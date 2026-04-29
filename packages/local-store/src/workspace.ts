@@ -15,16 +15,25 @@ export interface KanbotsDir {
 
 export type WorkspaceMode = 'github' | 'local';
 
+export interface WorkspaceDefaults {
+  /** Default per-run cost budget in USD. null/undefined = unbounded. */
+  runCostBudgetUsd?: number | null;
+  /** Default per-autopilot-session cost budget in USD. null/undefined = unbounded. */
+  sessionCostBudgetUsd?: number | null;
+}
+
 export interface GitHubWorkspaceConfig {
   mode: 'github';
   owner: string;
   repo: string;
+  defaults?: WorkspaceDefaults;
 }
 
 export interface LocalWorkspaceConfig {
   mode: 'local';
   name: string;
   authorLogin: string;
+  defaults?: WorkspaceDefaults;
 }
 
 export type WorkspaceConfig = GitHubWorkspaceConfig | LocalWorkspaceConfig;
@@ -68,13 +77,41 @@ export async function writeWorkspaceConfig(
 function validateConfig(input: unknown): WorkspaceConfig | null {
   if (typeof input !== 'object' || input === null) return null;
   const obj = input as Record<string, unknown>;
+  const defaults = parseDefaults(obj.defaults);
   if (obj.mode === 'github' && typeof obj.owner === 'string' && typeof obj.repo === 'string') {
-    return { mode: 'github', owner: obj.owner, repo: obj.repo };
+    return {
+      mode: 'github',
+      owner: obj.owner,
+      repo: obj.repo,
+      ...(defaults ? { defaults } : {}),
+    };
   }
   if (obj.mode === 'local' && typeof obj.name === 'string' && typeof obj.authorLogin === 'string') {
-    return { mode: 'local', name: obj.name, authorLogin: obj.authorLogin };
+    return {
+      mode: 'local',
+      name: obj.name,
+      authorLogin: obj.authorLogin,
+      ...(defaults ? { defaults } : {}),
+    };
   }
   return null;
+}
+
+function parseDefaults(input: unknown): WorkspaceDefaults | null {
+  if (typeof input !== 'object' || input === null) return null;
+  const obj = input as Record<string, unknown>;
+  const out: WorkspaceDefaults = {};
+  if (typeof obj.runCostBudgetUsd === 'number' && Number.isFinite(obj.runCostBudgetUsd)) {
+    out.runCostBudgetUsd = obj.runCostBudgetUsd;
+  } else if (obj.runCostBudgetUsd === null) {
+    out.runCostBudgetUsd = null;
+  }
+  if (typeof obj.sessionCostBudgetUsd === 'number' && Number.isFinite(obj.sessionCostBudgetUsd)) {
+    out.sessionCostBudgetUsd = obj.sessionCostBudgetUsd;
+  } else if (obj.sessionCostBudgetUsd === null) {
+    out.sessionCostBudgetUsd = null;
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 export async function findGitRoot(cwd: string): Promise<string | null> {

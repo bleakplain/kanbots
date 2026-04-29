@@ -8,7 +8,11 @@ import type {
 import type { SuggestFeatureBacklogEntry } from '../bridge.js';
 import { collectSuggestionEntries } from '../suggestion-context.js';
 import { dispatchAutopilotChild } from './dispatch-helpers.js';
-import { type OrchestratorContext, waitForChildSettled } from './orchestrator.js';
+import {
+  type OrchestratorContext,
+  SessionBudgetExceededError,
+  waitForChildSettled,
+} from './orchestrator.js';
 
 const MAX_PARALLELISM = 4;
 const SLOT_PAUSE_MS = 500;
@@ -98,6 +102,28 @@ async function runSlot(
     // straight into the same wall.
     await ctx.supervisor.waitForCooldown(signal);
     if (signal.aborted) return;
+
+    // Enforce the per-session cost budget (if any) before each iteration. We
+    // sum total_cost_usd across this session's children. Best-effort: cost
+    // only settles when each child completes, so a child can overshoot before
+    // we check.
+    const preIterSession = ctx.store.autopilotSessions.findById(initialSession.id);
+    if (preIterSession) {
+      const budget = ctx.resolveSessionBudget(preIterSession.config);
+      if (budget !== null) {
+        const childRunIds = preIterSession.children
+          .map((c) => c.runId)
+          .filter((id): id is number => id !== null);
+        const spent = ctx.store.agentRuns.sumCostByIds(childRunIds);
+        if (spent >= budget) {
+          throw new SessionBudgetExceededError(
+            spent,
+            budget,
+            `cost budget exceeded ($${spent.toFixed(4)} / $${budget.toFixed(2)})`,
+          );
+        }
+      }
+    }
 
     const claim = await claimNext();
     if (!claim) {

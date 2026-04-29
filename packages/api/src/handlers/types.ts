@@ -27,6 +27,14 @@ export interface SentryRuntime {
   restartPoller(): void;
 }
 
+export interface WorkspaceBudgetsAccessor {
+  get(): { runCostBudgetUsd: number | null; sessionCostBudgetUsd: number | null };
+  set(input: {
+    runCostBudgetUsd: number | null;
+    sessionCostBudgetUsd: number | null;
+  }): Promise<void> | void;
+}
+
 export interface HandlerDeps {
   source: IssueSource;
   store: Store;
@@ -37,6 +45,7 @@ export interface HandlerDeps {
   autopilot: AutopilotManager;
   analyzeSentryError: SentryAnalyzerFn;
   sentry: SentryRuntime;
+  budgets?: WorkspaceBudgetsAccessor;
 }
 
 export interface SubscriptionRegisterArgs {

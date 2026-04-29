@@ -1,3 +1,6 @@
+import { useEffect, useState } from 'react';
+import { api } from '../../api.js';
+import type { WorkspaceBudgets } from '../../types.js';
 import type { Tweaks } from '../../hooks/useTweaks.js';
 
 export interface TweaksPanelProps {
@@ -79,6 +82,8 @@ export function TweaksPanel({
         />
       </div>
 
+      <BudgetsSection />
+
       <div className="kb-tweaks-section">
         <div className="kb-tweaks-label">Try things</div>
         <div className="kb-tweaks-actions">
@@ -99,6 +104,144 @@ export function TweaksPanel({
       </div>
     </div>
   );
+}
+
+function BudgetsSection() {
+  const [budgets, setBudgets] = useState<WorkspaceBudgets | null>(null);
+  const [runDraft, setRunDraft] = useState('');
+  const [sessionDraft, setSessionDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getWorkspaceBudgets()
+      .then((b) => {
+        if (cancelled) return;
+        setBudgets(b);
+        setRunDraft(b.runCostBudgetUsd != null ? String(b.runCostBudgetUsd) : '');
+        setSessionDraft(
+          b.sessionCostBudgetUsd != null ? String(b.sessionCostBudgetUsd) : '',
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function save(): Promise<void> {
+    setSaving(true);
+    setError(null);
+    try {
+      const runVal = parseBudget(runDraft);
+      const sessionVal = parseBudget(sessionDraft);
+      if (runVal === 'invalid' || sessionVal === 'invalid') {
+        setError('Budgets must be positive numbers, or blank for unbounded.');
+        return;
+      }
+      const next = await api.setWorkspaceBudgets({
+        runCostBudgetUsd: runVal,
+        sessionCostBudgetUsd: sessionVal,
+      });
+      setBudgets(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!budgets) {
+    return (
+      <div className="kb-tweaks-section">
+        <div className="kb-tweaks-label">Cost budgets (USD)</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Loading…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="kb-tweaks-section">
+      <div className="kb-tweaks-label">Cost budgets (USD)</div>
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8 }}>
+        Auto-stops a run or autopilot session when its spend hits the cap.
+        Leave blank to disable.
+      </div>
+      <BudgetField
+        label="Per run"
+        value={runDraft}
+        onChange={setRunDraft}
+      />
+      <BudgetField
+        label="Per autopilot session"
+        value={sessionDraft}
+        onChange={setSessionDraft}
+      />
+      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          type="button"
+          className="kb-btn"
+          onClick={() => void save()}
+          disabled={saving}
+        >
+          {saving ? 'Saving…' : 'Save budgets'}
+        </button>
+        {error ? (
+          <span style={{ color: 'var(--failed)', fontSize: 11 }}>{error}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function BudgetField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        fontSize: 12,
+        marginBottom: 6,
+      }}
+    >
+      <span style={{ minWidth: 160 }}>{label}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={value}
+        placeholder="unbounded"
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          flex: 1,
+          padding: '4px 6px',
+          background: 'var(--ink-bg)',
+          color: 'var(--ink-1)',
+          border: '1px solid var(--hairline)',
+          borderRadius: 4,
+          fontSize: 12,
+        }}
+      />
+    </label>
+  );
+}
+
+function parseBudget(raw: string): number | null | 'invalid' {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n <= 0) return 'invalid';
+  return n;
 }
 
 function Toggle({

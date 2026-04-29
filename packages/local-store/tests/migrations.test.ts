@@ -48,6 +48,8 @@ describe('migrations', () => {
       '0006_agent_cost',
       '0007_agent_checks',
       '0008_agent_preview',
+      '0009_autopilot_sessions',
+      '0010_cost_budget',
     ]);
     store.close();
   });

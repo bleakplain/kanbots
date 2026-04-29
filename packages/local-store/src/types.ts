@@ -76,6 +76,7 @@ export interface AgentRun {
   sessionId: string | null;
   model: string | null;
   totalCostUsd: number | null;
+  costBudgetUsd: number | null;
   durationMs: number | null;
   previewUrl: string | null;
   previewState: PreviewState | null;
@@ -151,12 +152,14 @@ export type AutopilotConfig =
       model?: string;
       effort?: AutopilotEffort;
       parallelism?: number;
+      sessionCostBudgetUsd?: number;
     }
   | {
       kind: 'qa';
       checks: AutopilotCheckCommand[];
       liveUi: boolean;
       devServer?: { command: string; args: string[] };
+      sessionCostBudgetUsd?: number;
     };
 
 export interface AutopilotChildEntry {

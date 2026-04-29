@@ -57,6 +57,7 @@ export type {
   StatusKey,
   UpdateIssuePatch,
   Workspace,
+  WorkspaceBudgets,
   WorkspaceFolderPayload,
 } from '@kanbots/api';
 

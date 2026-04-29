@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Workspace, WorkspaceFolderPayload } from '../bridge.js';
+import type { Workspace, WorkspaceBudgets, WorkspaceFolderPayload } from '../bridge.js';
 import { bootstrapWorkspace } from '../workspace-bootstrap.js';
 import { badRequest, parseArgs } from './errors.js';
 import type { HandlerDeps } from './types.js';
@@ -53,6 +53,32 @@ export async function listFolders(
     addedAt: f.addedAt,
     current: f.id === currentFolder.id,
   }));
+}
+
+const setBudgetsSchema = z
+  .object({
+    runCostBudgetUsd: z.number().positive().nullable(),
+    sessionCostBudgetUsd: z.number().positive().nullable(),
+  })
+  .strict();
+
+export async function getBudgets(deps: HandlerDeps): Promise<WorkspaceBudgets> {
+  if (!deps.budgets) {
+    return { runCostBudgetUsd: null, sessionCostBudgetUsd: null };
+  }
+  return deps.budgets.get();
+}
+
+export async function setBudgets(
+  deps: HandlerDeps,
+  args: WorkspaceBudgets,
+): Promise<WorkspaceBudgets> {
+  const parsed = parseArgs(setBudgetsSchema, args);
+  if (!deps.budgets) {
+    throw badRequest('host has no active workspace');
+  }
+  await deps.budgets.set(parsed);
+  return deps.budgets.get();
 }
 
 export async function addFolder(

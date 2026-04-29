@@ -341,6 +341,11 @@ export interface Workspace {
   currentFolderId: string;
 }
 
+export interface WorkspaceBudgets {
+  runCostBudgetUsd: number | null;
+  sessionCostBudgetUsd: number | null;
+}
+
 export interface WorkspaceFolderPayload {
   id: string;
   workspaceId: string;
@@ -510,6 +515,11 @@ export interface BridgeChannels {
   'cost:usage': { args: void; result: CostUsageResult };
   'cooldown:get': { args: void; result: CooldownStatePayload };
   'workspace:get': { args: void; result: Workspace };
+  'workspace:get-budgets': { args: void; result: WorkspaceBudgets };
+  'workspace:set-budgets': {
+    args: { runCostBudgetUsd: number | null; sessionCostBudgetUsd: number | null };
+    result: WorkspaceBudgets;
+  };
   'folders:list': { args: void; result: WorkspaceFolderPayload[] };
   'folders:add': {
     args: { name: string; path: string; defaultBranch?: string };

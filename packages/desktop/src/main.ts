@@ -270,10 +270,17 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
   const containmentEnv = process.env.KANBOTS_CONTAINMENT_MODE;
   const containmentMode: 'off' | 'warn' | 'pause' =
     containmentEnv === 'off' || containmentEnv === 'pause' ? containmentEnv : 'warn';
+
+  const budgetsState = {
+    runCostBudgetUsd: config.defaults?.runCostBudgetUsd ?? null,
+    sessionCostBudgetUsd: config.defaults?.sessionCostBudgetUsd ?? null,
+  };
+
   const rawSupervisor = await createSupervisor({
     store,
     repoPath: gitRoot,
     containmentMode,
+    defaultRunCostBudgetUsd: () => budgetsState.runCostBudgetUsd,
     onRunComplete: async (run) => {
       try {
         const thread = store.threads.findById(run.threadId);
@@ -344,6 +351,7 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
     suggestIssue,
     repoPath: gitRoot,
     repoConfig: { owner: apiConfig.owner, repo: apiConfig.repo },
+    defaultSessionCostBudgetUsd: () => budgetsState.sessionCostBudgetUsd,
     onSessionChange: () => broadcastIssueChange(),
   });
   const handlers = createHandlers({
@@ -357,6 +365,28 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
       autopilot,
       analyzeSentryError,
       sentry: sentryRuntime,
+      budgets: {
+        get: () => ({
+          runCostBudgetUsd: budgetsState.runCostBudgetUsd,
+          sessionCostBudgetUsd: budgetsState.sessionCostBudgetUsd,
+        }),
+        set: async (input) => {
+          budgetsState.runCostBudgetUsd = input.runCostBudgetUsd;
+          budgetsState.sessionCostBudgetUsd = input.sessionCostBudgetUsd;
+          const defaults = {
+            runCostBudgetUsd: input.runCostBudgetUsd,
+            sessionCostBudgetUsd: input.sessionCostBudgetUsd,
+          };
+          const next: WorkspaceConfig =
+            config.mode === 'github'
+              ? { ...config, defaults }
+              : { ...config, defaults };
+          await writeWorkspaceConfig(gitRoot, next);
+          if (activeWorkspace && activeWorkspace.repoPath === gitRoot) {
+            activeWorkspace.config = next;
+          }
+        },
+      },
     },
     subscriptions,
   });
