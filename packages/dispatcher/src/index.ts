@@ -49,6 +49,12 @@ export {
 } from './worktree.js';
 
 export {
+  stampWorktreeIdentity,
+  type StampWorktreeIdentityInput,
+  type StampWorktreeIdentityResult,
+} from './worktree-identity.js';
+
+export {
   defaultCheckCommand,
   runCheck,
   type CheckCommand,

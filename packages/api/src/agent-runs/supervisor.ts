@@ -6,9 +6,12 @@ import {
   defaultBranchName,
   defaultWorktreePath,
   DEFAULT_GRACEFUL_TIMEOUT_MS,
+  stampWorktreeIdentity as defaultStampWorktreeIdentity,
   startAgentRun as defaultStartAgentRun,
   type AgentRunHandle,
   type CreateWorktreeInput,
+  type StampWorktreeIdentityInput,
+  type StampWorktreeIdentityResult,
   type StartAgentRunOptions,
   type StreamEvent,
   type Worktree,
@@ -34,6 +37,9 @@ export interface CreateSupervisorOptions {
   repoPath: string;
   startAgentRun?: (opts: StartAgentRunOptions) => AgentRunHandle;
   createWorktree?: (input: CreateWorktreeInput) => Promise<Worktree>;
+  stampWorktreeIdentity?: (
+    input: StampWorktreeIdentityInput,
+  ) => Promise<StampWorktreeIdentityResult>;
   prepareWorktreeDir?: (path: string) => Promise<void>;
   appendSystemPromptDefault?: string;
   onRunComplete?: (run: AgentRun) => Promise<void> | void;
@@ -112,6 +118,7 @@ export function createSupervisor(opts: CreateSupervisorOptions): AgentSupervisor
   const { store, repoPath } = opts;
   const startAgent = opts.startAgentRun ?? defaultStartAgentRun;
   const makeWorktree = opts.createWorktree ?? defaultCreateWorktree;
+  const stampIdentity = opts.stampWorktreeIdentity ?? defaultStampWorktreeIdentity;
   const prepareDir = opts.prepareWorktreeDir ?? defaultPrepareDir;
   const decisionInstructions = opts.appendSystemPromptDefault ?? DEFAULT_DECISION_PROMPT;
   const stopGracefulTimeoutMs = opts.stopGracefulTimeoutMs ?? DEFAULT_GRACEFUL_TIMEOUT_MS;
@@ -282,6 +289,11 @@ export function createSupervisor(opts: CreateSupervisorOptions): AgentSupervisor
     try {
       await prepareDir(worktreePath);
       await makeWorktree({ repoPath, branch, worktreePath });
+      await stampIdentity({
+        worktreePath,
+        runId: run.id,
+        issueNumber: input.issueNumber,
+      });
     } catch (err) {
       run = store.agentRuns.update(run.id, {
         status: 'failed',
