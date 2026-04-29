@@ -36,6 +36,7 @@ export {
   type RunSummary,
   type StartAgentRunOptions,
   type StopOptions,
+  type StopEscalation,
 } from './worker.js';
 
 export {

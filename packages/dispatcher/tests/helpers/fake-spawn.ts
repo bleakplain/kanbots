@@ -8,6 +8,7 @@ export interface FakeSpawnCall {
   args: readonly string[];
   cwd: string;
   stdin: string;
+  detached?: boolean;
 }
 
 export interface FakeSpawnOptions {
@@ -17,6 +18,12 @@ export interface FakeSpawnOptions {
   exitDelayMs?: number;
   errorOnSpawn?: Error;
   hangs?: boolean;
+  /**
+   * When true, the fake child swallows SIGTERM (records it but does not
+   * exit) and only exits on SIGKILL — useful for testing the
+   * SIGTERM→SIGKILL escalation path in the worker.
+   */
+  ignoreSigterm?: boolean;
 }
 
 export interface FakeSpawn {
@@ -50,25 +57,30 @@ export function makeFakeSpawn(opts: FakeSpawnOptions = {}): FakeSpawn {
     };
 
     child.kill = ((signal?: NodeJS.Signals | number) => {
-      killSignals.push(typeof signal === 'string' ? signal : 'SIGTERM');
-      setImmediate(() => emitClose(143));
+      const sig = typeof signal === 'string' ? signal : 'SIGTERM';
+      killSignals.push(sig);
+      if (opts.ignoreSigterm && sig === 'SIGTERM') {
+        // Swallow — only SIGKILL terminates this fake child.
+        return true;
+      }
+      setImmediate(() => emitClose(sig === 'SIGKILL' ? 137 : 143));
       return true;
     }) as ChildProcess['kill'];
 
     if (opts.errorOnSpawn) {
       queueMicrotask(() => child.emit('error', opts.errorOnSpawn));
-      calls.push({ command, args, cwd: options.cwd, stdin: stdinBuffer });
+      calls.push({ command, args, cwd: options.cwd, stdin: stdinBuffer, detached: options.detached });
       return child;
     }
 
     const finalize = (): void => {
-      calls.push({ command, args, cwd: options.cwd, stdin: stdinBuffer });
+      calls.push({ command, args, cwd: options.cwd, stdin: stdinBuffer, detached: options.detached });
       emitClose(opts.exitCode ?? 0);
     };
 
     if (opts.hangs) {
       stdin.on('finish', () => {
-        calls.push({ command, args, cwd: options.cwd, stdin: stdinBuffer });
+        calls.push({ command, args, cwd: options.cwd, stdin: stdinBuffer, detached: options.detached });
       });
     } else {
       stdin.on('finish', () => {

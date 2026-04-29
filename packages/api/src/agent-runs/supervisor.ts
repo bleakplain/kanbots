@@ -239,7 +239,7 @@ export function createSupervisor(opts: CreateSupervisorOptions): AgentSupervisor
       const status: AgentRunStatus =
         entry.hasDecision && naturalStatus === 'complete' ? 'awaiting_input' : naturalStatus;
       const exitReason = summary.killedByStop
-        ? summary.escalatedToKill
+        ? summary.stopEscalation === 'sigkill'
           ? `stopped by user (SIGKILL after ${stopGracefulTimeoutMs}ms)`
           : 'stopped by user'
         : summary.exitCode !== 0
@@ -250,6 +250,7 @@ export function createSupervisor(opts: CreateSupervisorOptions): AgentSupervisor
         status,
         endedAt: status === 'awaiting_input' ? null : new Date().toISOString(),
         pid: null,
+        stopEscalation: summary.stopEscalation,
         ...(summary.result?.tokenUsage
           ? {
               tokenUsageInput: summary.result.tokenUsage.input,

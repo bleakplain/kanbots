@@ -22,11 +22,19 @@ export interface RunResult {
   totalCostUsd: number | null;
 }
 
+export type StopEscalation = 'sigterm' | 'sigkill' | null;
+
 export interface RunSummary {
   exitCode: number | null;
   result: RunResult | null;
   killedByStop: boolean;
-  escalatedToKill: boolean;
+  /**
+   * How the run terminated when stop() was invoked:
+   *   - 'sigterm' — child exited within the grace period after SIGTERM
+   *   - 'sigkill' — grace period elapsed and we had to escalate to SIGKILL
+   *   - null     — stop() was not called
+   */
+  stopEscalation: StopEscalation;
   stderr: string;
 }
 
@@ -48,6 +56,7 @@ export interface AgentRunHandle {
 }
 
 export const DEFAULT_GRACEFUL_TIMEOUT_MS = 10_000;
+const IS_WINDOWS = process.platform === 'win32';
 
 export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
   const command = opts.command ?? 'claude';
@@ -74,21 +83,21 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
     args.push('--model', opts.model);
   }
 
-  const child = spawnFn(command, args, { cwd: opts.cwd });
+  // On POSIX, become a process-group leader so we can signal the entire
+  // tree of subprocesses claude spawns (Bash tool calls, pnpm install,
+  // hung test runs, etc.) when stop() is called. On Windows the process
+  // model is different — we fall back to taskkill /T /F at escalation
+  // time.
+  const detached = !IS_WINDOWS;
+  const child = spawnFn(command, args, { cwd: opts.cwd, detached });
   const emitter = new EventEmitter();
 
   let result: RunResult | null = null;
   let killedByStop = false;
-  let escalatedToKill = false;
-  let killTimer: NodeJS.Timeout | null = null;
+  let stopEscalation: StopEscalation = null;
   let stderr = '';
-
-  const clearKillTimer = (): void => {
-    if (killTimer !== null) {
-      clearTimeout(killTimer);
-      killTimer = null;
-    }
-  };
+  let escalationTimer: NodeJS.Timeout | null = null;
+  let settled = false;
 
   const splitter = makeLineSplitter();
   child.stdout?.on('data', (chunk: Buffer) => {
@@ -118,18 +127,62 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
     child.stdin.end();
   }
 
+  function clearEscalation(): void {
+    if (escalationTimer !== null) {
+      clearTimeout(escalationTimer);
+      escalationTimer = null;
+    }
+  }
+
+  // Deliver `signal` to the entire process group on POSIX, falling back to
+  // signalling the direct child if the group kill fails (e.g. the child
+  // already exited, or the spawn implementation didn't honor `detached`).
+  function killTarget(signal: NodeJS.Signals): void {
+    const pid = child.pid;
+    if (IS_WINDOWS) {
+      if (signal === 'SIGKILL' && typeof pid === 'number') {
+        // taskkill /T /F kills the process and all descendants.
+        try {
+          nodeSpawn('taskkill', ['/pid', String(pid), '/T', '/F']).on('error', () => {
+            // Best-effort; fall through to direct kill.
+          });
+        } catch {
+          // ignore — fall through to direct kill below
+        }
+      }
+      try {
+        child.kill(signal);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    if (typeof pid === 'number') {
+      try {
+        process.kill(-pid, signal);
+        return;
+      } catch {
+        // pgid kill failed — fall through to direct kill
+      }
+    }
+    try {
+      child.kill(signal);
+    } catch {
+      // ignore — child may already be gone
+    }
+  }
+
   const done = new Promise<RunSummary>((resolve) => {
-    let settled = false;
     child.on('error', (err) => {
       if (settled) return;
       settled = true;
-      clearKillTimer();
+      clearEscalation();
       emitter.emit('error', err);
       const summary: RunSummary = {
         exitCode: null,
         result,
         killedByStop,
-        escalatedToKill,
+        stopEscalation,
         stderr,
       };
       emitter.emit('close', summary);
@@ -138,12 +191,12 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
     child.on('close', (code) => {
       if (settled) return;
       settled = true;
-      clearKillTimer();
+      clearEscalation();
       const summary: RunSummary = {
         exitCode: code ?? null,
         result,
         killedByStop,
-        escalatedToKill,
+        stopEscalation,
         stderr,
       };
       emitter.emit('close', summary);
@@ -168,19 +221,17 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
         typeof arg === 'string' ? { signal: arg } : (arg ?? {});
       const signal = stopOpts.signal ?? 'SIGTERM';
       const gracefulTimeoutMs = stopOpts.gracefulTimeoutMs ?? DEFAULT_GRACEFUL_TIMEOUT_MS;
-      child.kill(signal);
-      if (signal === 'SIGKILL' || gracefulTimeoutMs <= 0) return;
-      killTimer = setTimeout(() => {
-        killTimer = null;
-        escalatedToKill = true;
-        try {
-          child.kill('SIGKILL');
-        } catch {
-          // child may already be gone; close handler will settle naturally
-        }
+      stopEscalation = signal === 'SIGKILL' ? 'sigkill' : 'sigterm';
+      killTarget(signal);
+      if (settled || signal === 'SIGKILL' || gracefulTimeoutMs <= 0) return;
+      escalationTimer = setTimeout(() => {
+        escalationTimer = null;
+        if (settled) return;
+        stopEscalation = 'sigkill';
+        killTarget('SIGKILL');
       }, gracefulTimeoutMs);
-      // Ensure the timer doesn't keep the event loop alive on its own.
-      if (typeof killTimer.unref === 'function') killTimer.unref();
+      // Don't keep the event loop alive purely for the escalation timer.
+      escalationTimer.unref?.();
     },
     done,
   };

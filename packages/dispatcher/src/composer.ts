@@ -44,7 +44,7 @@ export type CreateSuggesterOptions = CreateComposerOptions;
 export type SpawnFn = (
   command: string,
   args: readonly string[],
-  options: { cwd: string },
+  options: { cwd: string; detached?: boolean },
 ) => ChildProcess;
 
 export type DraftIssueFn = (input: DraftIssueInput) => Promise<DraftedIssue>;

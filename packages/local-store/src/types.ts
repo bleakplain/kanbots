@@ -67,6 +67,7 @@ export interface AgentRun {
   tokenUsageInput: number | null;
   tokenUsageOutput: number | null;
   exitReason: string | null;
+  stopEscalation: 'sigterm' | 'sigkill' | null;
   sessionId: string | null;
   model: string | null;
   totalCostUsd: number | null;

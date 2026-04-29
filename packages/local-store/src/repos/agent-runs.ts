@@ -13,6 +13,7 @@ interface AgentRunRow {
   token_usage_input: number | null;
   token_usage_output: number | null;
   exit_reason: string | null;
+  stop_escalation: string | null;
   session_id: string | null;
   model: string | null;
   total_cost_usd: number | null;
@@ -35,6 +36,7 @@ function rowToAgentRun(row: AgentRunRow): AgentRun {
     tokenUsageInput: row.token_usage_input,
     tokenUsageOutput: row.token_usage_output,
     exitReason: row.exit_reason,
+    stopEscalation: (row.stop_escalation as AgentRun['stopEscalation']) ?? null,
     sessionId: row.session_id,
     model: row.model,
     totalCostUsd: row.total_cost_usd,
@@ -61,6 +63,7 @@ export interface UpdateAgentRunPatch {
   tokenUsageInput?: number | null;
   tokenUsageOutput?: number | null;
   exitReason?: string | null;
+  stopEscalation?: 'sigterm' | 'sigkill' | null;
   sessionId?: string | null;
   model?: string | null;
   totalCostUsd?: number | null;
@@ -79,6 +82,7 @@ const PATCH_COLUMNS: Record<keyof UpdateAgentRunPatch, string> = {
   tokenUsageInput: 'token_usage_input',
   tokenUsageOutput: 'token_usage_output',
   exitReason: 'exit_reason',
+  stopEscalation: 'stop_escalation',
   sessionId: 'session_id',
   model: 'model',
   totalCostUsd: 'total_cost_usd',
@@ -118,6 +122,7 @@ export class AgentRunsRepo {
       tokenUsageInput: null,
       tokenUsageOutput: null,
       exitReason: null,
+      stopEscalation: null,
       sessionId: null,
       model: null,
       totalCostUsd: null,
