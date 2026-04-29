@@ -16,16 +16,17 @@ interface InternalState<T> {
   error: Error | null;
 }
 
-export function useFetch<T>(key: string, fetcher: () => Promise<T>): FetchState<T> {
+export function useFetch<T>(key: string | null, fetcher: () => Promise<T>): FetchState<T> {
   const [state, setState] = useState<InternalState<T>>({
     data: null,
-    loading: true,
+    loading: key !== null,
     error: null,
   });
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
   useEffect(() => {
+    if (key === null) return;
     let cancelled = false;
     setState((prev) => ({ ...prev, loading: true }));
 

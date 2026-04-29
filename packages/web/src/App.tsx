@@ -226,7 +226,7 @@ function ShellHost({
 
 export function App({ workspace, initialRecents, hasBridge, initialClaudeAuthed }: AppProps) {
   const [claudeAuthed, setClaudeAuthed] = useState(initialClaudeAuthed);
-  const { data: config } = useFetch('config', () => api.config());
+  const { data: config } = useFetch(workspace ? 'config' : null, () => api.config());
 
   if (hasBridge && !claudeAuthed) {
     return <ClaudeLoginGate onAuthed={() => setClaudeAuthed(true)} />;

@@ -4,12 +4,12 @@
    ========================================================================= */
 
 .kb-board-toolbar {
-  height: 48px;
+  min-height: 48px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 18px;
+  padding: 8px 18px;
   border-bottom: 1px solid var(--hairline);
   background: linear-gradient(
     to bottom,
@@ -17,6 +17,7 @@
     var(--bg) 50%,
     color-mix(in oklch, var(--bg) 92%, transparent)
   );
+  flex-wrap: wrap;
 }
 .kb-crumbs {
   display: flex;
@@ -24,6 +25,11 @@
   gap: 8px;
   font-size: 13px;
   color: var(--ink-2);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
 }
 .kb-crumbs .kb-crumb-active {
   color: var(--ink);
@@ -37,6 +43,12 @@
   display: flex;
   gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.kb-toolbar-actions .kb-btn.primary {
+  flex-shrink: 0;
 }
 
 .kb-btn {
@@ -101,9 +113,34 @@
   border: 1px solid var(--hairline);
   border-radius: 7px;
   width: 280px;
+  min-width: 0;
+  flex-shrink: 1;
   color: var(--ink-3);
   font-size: 12px;
   cursor: text;
+  overflow: hidden;
+}
+.kb-search > span:not(.kb-search-kbd) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .kb-search {
+    width: 200px;
+  }
+}
+@media (max-width: 820px) {
+  .kb-search {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .kb-search > span:not(.kb-search-kbd),
+  .kb-search-kbd {
+    display: none;
+  }
 }
 .kb-search:hover {
   border-color: var(--ink-4);

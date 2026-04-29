@@ -34,6 +34,7 @@ import {
   isClaudeAuthenticated,
   startClaudeLogin,
 } from './claude-auth.js';
+import { watchDbFile, type DbWatcher } from './db-watcher.js';
 import {
   createSubscriptionRegistry,
   type OwnedSubscriptionRegistry,
@@ -65,7 +66,16 @@ interface ActiveWorkspace {
   ownerId: number;
   detachOwnerCleanup: () => void;
   cooldownUnsub: () => void;
+  dbWatcher: DbWatcher;
 }
+
+process.on('uncaughtException', (err) => {
+  console.error('[main] uncaughtException:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[main] unhandledRejection:', reason);
+});
 
 let activeWorkspace: ActiveWorkspace | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -223,6 +233,11 @@ async function closeActiveWorkspace(): Promise<void> {
     // ignore
   }
   try {
+    activeWorkspace.dbWatcher.stop();
+  } catch {
+    // ignore
+  }
+  try {
     activeWorkspace.store.close();
   } catch {
     // ignore
@@ -246,10 +261,15 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
   const kdir = describeKanbotsDir(gitRoot);
   const store = openStore({ path: kdir.dbPath });
 
+  // Catch external db writes (other process, direct sqlite3 edits) — the
+  // notify-wrappers below only cover writes that go through our handlers.
+  const dbWatcher = watchDbFile(kdir.dbPath, broadcastIssueChange);
+
   let source: IssueSource;
   try {
     source = wrapNotifyingSource(await buildSource(config, store));
   } catch (err) {
+    dbWatcher.stop();
     store.close();
     throw err;
   }
@@ -440,6 +460,7 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
     ownerId,
     detachOwnerCleanup,
     cooldownUnsub,
+    dbWatcher,
   };
 
   sentryPoller.start();
