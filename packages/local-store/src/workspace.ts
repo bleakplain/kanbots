@@ -40,6 +40,7 @@ export interface GitHubWorkspaceConfig extends WorkspaceConfigCommon {
   owner: string;
   repo: string;
   defaults?: WorkspaceDefaults;
+  notifyOnRunComplete?: boolean;
 }
 
 export interface LocalWorkspaceConfig extends WorkspaceConfigCommon {
@@ -47,6 +48,7 @@ export interface LocalWorkspaceConfig extends WorkspaceConfigCommon {
   name: string;
   authorLogin: string;
   defaults?: WorkspaceDefaults;
+  notifyOnRunComplete?: boolean;
 }
 
 export type WorkspaceConfig = GitHubWorkspaceConfig | LocalWorkspaceConfig;
@@ -126,16 +128,19 @@ function validateConfig(input: unknown): WorkspaceConfig | null {
   const obj = input as Record<string, unknown>;
   const defaults = parseDefaults(obj.defaults);
   const checks = validateCheckOverrides(obj.checks);
+  const notify = typeof obj.notifyOnRunComplete === 'boolean' ? obj.notifyOnRunComplete : undefined;
   if (obj.mode === 'github' && typeof obj.owner === 'string' && typeof obj.repo === 'string') {
     const cfg: GitHubWorkspaceConfig = { mode: 'github', owner: obj.owner, repo: obj.repo };
     if (defaults) cfg.defaults = defaults;
     if (checks) cfg.checks = checks;
+    if (notify !== undefined) cfg.notifyOnRunComplete = notify;
     return cfg;
   }
   if (obj.mode === 'local' && typeof obj.name === 'string' && typeof obj.authorLogin === 'string') {
     const cfg: LocalWorkspaceConfig = { mode: 'local', name: obj.name, authorLogin: obj.authorLogin };
     if (defaults) cfg.defaults = defaults;
     if (checks) cfg.checks = checks;
+    if (notify !== undefined) cfg.notifyOnRunComplete = notify;
     return cfg;
   }
   return null;

@@ -11,6 +11,8 @@ export interface TweaksPanelProps {
   onOpenPalette: () => void;
   onFocusPaused?: () => void;
   onFocusReview?: () => void;
+  notifyOnRunComplete?: boolean;
+  onSetNotifyOnRunComplete?: (enabled: boolean) => void;
 }
 
 export function TweaksPanel({
@@ -21,6 +23,8 @@ export function TweaksPanel({
   onOpenPalette,
   onFocusPaused,
   onFocusReview,
+  notifyOnRunComplete,
+  onSetNotifyOnRunComplete,
 }: TweaksPanelProps) {
   return (
     <div className="kb-tweaks kb-app" role="dialog" aria-label="Tweaks">
@@ -83,6 +87,17 @@ export function TweaksPanel({
       </div>
 
       <BudgetsSection />
+
+      {onSetNotifyOnRunComplete ? (
+        <div className="kb-tweaks-section">
+          <div className="kb-tweaks-label">Notifications</div>
+          <Toggle
+            label="Notify me when agents finish"
+            on={notifyOnRunComplete !== false}
+            onChange={(v) => onSetNotifyOnRunComplete(v)}
+          />
+        </div>
+      ) : null}
 
       <div className="kb-tweaks-section">
         <div className="kb-tweaks-label">Try things</div>

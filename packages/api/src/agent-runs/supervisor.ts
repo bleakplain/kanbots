@@ -74,6 +74,7 @@ export interface CreateSupervisorOptions {
   /** How to react when an agent's tool_use targets a path outside its
    *  worktree. Default: 'warn'. */
   containmentMode?: ContainmentMode;
+  onRunStatusChange?: (run: AgentRun) => Promise<void> | void;
 }
 
 const STOP_FORCE_RESOLVE_SLACK_MS = 2_000;
@@ -530,6 +531,11 @@ export async function createSupervisor(
       emitter.emit(statusChannel(run.id), updated.status);
       if (status === 'complete' && opts.onRunComplete) {
         void Promise.resolve(opts.onRunComplete(updated)).catch(() => {
+          // best-effort hook; failures must not crash the supervisor
+        });
+      }
+      if (opts.onRunStatusChange) {
+        void Promise.resolve(opts.onRunStatusChange(updated)).catch(() => {
           // best-effort hook; failures must not crash the supervisor
         });
       }

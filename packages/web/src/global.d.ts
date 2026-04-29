@@ -41,6 +41,9 @@ export interface KanbotsBridge {
   claudeAuthStatus(): Promise<{ authed: boolean }>;
   claudeLoginStart(): Promise<{ ok: true } | { ok: false; error: string }>;
   claudeLoginCancel(): Promise<void>;
+  setNotifyOnRunComplete(
+    enabled: boolean,
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
 
   invoke<C extends ChannelName>(
     channel: C,

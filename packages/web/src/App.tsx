@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useFetch } from './hooks/useFetch.js';
-import { useRoute } from './hooks/useRoute.js';
+import { useRoute, navigate } from './hooks/useRoute.js';
+import { getBridge } from './desktop-bridge.js';
 import { useSelection } from './hooks/useSelection.js';
 import { useTweaks } from './hooks/useTweaks.js';
 import { IssuesProvider, useIssues } from './hooks/useIssues.js';
@@ -34,7 +35,29 @@ function describeFolder(config: Config | null): string {
   return `${config.owner}/${config.repo}`;
 }
 
-function ShellHost({ config }: { config: Config | null }) {
+function ShellHost({
+  config,
+  workspace,
+}: {
+  config: Config | null;
+  workspace: ActiveWorkspaceInfo | null;
+}) {
+  const [notifyOnRunComplete, setNotifyOnRunCompleteState] = useState<boolean>(
+    workspace?.config.notifyOnRunComplete !== false,
+  );
+
+  useEffect(() => {
+    setNotifyOnRunCompleteState(workspace?.config.notifyOnRunComplete !== false);
+  }, [workspace?.config.notifyOnRunComplete]);
+
+  const setNotifyOnRunComplete = (enabled: boolean): void => {
+    setNotifyOnRunCompleteState(enabled);
+    const bridge = getBridge();
+    if (bridge?.setNotifyOnRunComplete) {
+      void bridge.setNotifyOnRunComplete(enabled);
+    }
+  };
+
   const route = useRoute();
   const [selectedNumber, setSelectedNumber] = useSelection();
   const { tweaks, set: setTweak, reset: resetTweaks } = useTweaks();
@@ -55,6 +78,21 @@ function ShellHost({ config }: { config: Config | null }) {
       setSelectedNumber(route.number);
     }
   }, [route, selectedNumber, setSelectedNumber]);
+
+  useEffect(() => {
+    const bridge = getBridge();
+    if (!bridge) return;
+    return bridge.subscribe('kanbots:navigate-task', (payload) => {
+      const issueNumber =
+        typeof payload === 'object' && payload !== null && 'issueNumber' in payload
+          ? (payload as { issueNumber: unknown }).issueNumber
+          : null;
+      if (typeof issueNumber !== 'number') return;
+      navigate({ name: 'issue', number: issueNumber });
+      setSelectedNumber(issueNumber);
+      setDetailIssueNumber(issueNumber);
+    });
+  }, [setSelectedNumber]);
 
   const shortcutHandlers = useMemo(
     () => ({
@@ -176,6 +214,10 @@ function ShellHost({ config }: { config: Config | null }) {
           {...(reviewReady
             ? { onFocusReview: () => setSelectedNumber(reviewReady.number) }
             : {})}
+          notifyOnRunComplete={notifyOnRunComplete}
+          {...(getBridge()
+            ? { onSetNotifyOnRunComplete: setNotifyOnRunComplete }
+            : {})}
         />
       ) : null}
     </>
@@ -198,7 +240,7 @@ export function App({ workspace, initialRecents, hasBridge, initialClaudeAuthed 
 
   return (
     <IssuesProvider>
-      <ShellHost config={config ?? null} />
+      <ShellHost config={config ?? null} workspace={workspace} />
     </IssuesProvider>
   );
 }

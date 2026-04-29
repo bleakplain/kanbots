@@ -52,6 +52,7 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     | 'claudeAuthStatus'
     | 'claudeLoginStart'
     | 'claudeLoginCancel'
+    | 'setNotifyOnRunComplete'
   > = {
     bootstrap: () =>
       Promise.resolve({
@@ -69,6 +70,7 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     claudeAuthStatus: () => Promise.resolve({ authed: true }),
     claudeLoginStart: () => Promise.resolve({ ok: true }),
     claudeLoginCancel: () => Promise.resolve(),
+    setNotifyOnRunComplete: () => Promise.resolve({ ok: true }),
   };
 
   const bridge: FakeBridge = {

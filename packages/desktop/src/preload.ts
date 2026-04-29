@@ -25,6 +25,10 @@ const api: KanbotsBridge = {
       { ok: true } | { ok: false; error: string }
     >,
   claudeLoginCancel: () => ipcRenderer.invoke('kanbots:claude-login-cancel') as Promise<void>,
+  setNotifyOnRunComplete: (enabled: boolean) =>
+    ipcRenderer.invoke('kanbots:set-notify-on-run-complete', enabled) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
   invoke: <C extends ChannelName>(channel: C, args: ChannelArgs<C>) =>
     ipcRenderer.invoke(`${INVOKE_PREFIX}${channel}`, args) as Promise<ChannelResult<C>>,
   subscribe: (eventName: string, listener: (payload: unknown) => void) => {

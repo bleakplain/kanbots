@@ -6,8 +6,13 @@
 export interface ActiveWorkspaceInfo {
   repoPath: string;
   config:
-    | { mode: 'github'; owner: string; repo: string }
-    | { mode: 'local'; name: string; authorLogin: string };
+    | { mode: 'github'; owner: string; repo: string; notifyOnRunComplete?: boolean }
+    | {
+        mode: 'local';
+        name: string;
+        authorLogin: string;
+        notifyOnRunComplete?: boolean;
+      };
 }
 
 export interface RecentWorkspace {

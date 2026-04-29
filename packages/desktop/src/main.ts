@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, Notification } from 'electron';
 import {
   createAutopilotManager,
   createHandlers,
@@ -47,6 +47,7 @@ import {
   safeStorageAvailable,
 } from './sentry-token.js';
 import type { ActiveWorkspaceInfo, BootstrapPayload, RecentWorkspace } from './types.js';
+import type { AgentRun, AgentRunStatus } from '@kanbots/local-store';
 
 interface ActiveWorkspace {
   repoPath: string;
@@ -281,6 +282,13 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
     repoPath: gitRoot,
     containmentMode,
     defaultRunCostBudgetUsd: () => budgetsState.runCostBudgetUsd,
+    onRunStatusChange: async (run) => {
+      try {
+        await maybeNotifyRunStatus(run, store, source);
+      } catch {
+        // best-effort: never let notification failures break the supervisor
+      }
+    },
     onRunComplete: async (run) => {
       try {
         const thread = store.threads.findById(run.threadId);
@@ -442,6 +450,71 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
   return { repoPath: gitRoot, config };
 }
 
+const NOTIFY_STATUSES = new Set<AgentRunStatus>([
+  'awaiting_input',
+  'failed',
+  'complete',
+  'stopped',
+]);
+
+function notificationBody(status: AgentRunStatus): string {
+  switch (status) {
+    case 'awaiting_input':
+      return 'Decision needed';
+    case 'failed':
+      return 'Run failed';
+    case 'complete':
+      return 'Run complete';
+    case 'stopped':
+      return 'Run stopped';
+    default:
+      return status;
+  }
+}
+
+async function maybeNotifyRunStatus(
+  run: AgentRun,
+  store: Store,
+  source: IssueSource,
+): Promise<void> {
+  if (!NOTIFY_STATUSES.has(run.status)) return;
+  if (!Notification.isSupported()) return;
+  if (activeWorkspace?.config.notifyOnRunComplete === false) return;
+  // Suppress when the user is already looking at the app — they don't need
+  // an OS-level pop-up to tell them what's already on screen.
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) return;
+
+  const thread = store.threads.findById(run.threadId);
+  if (!thread) return;
+  let title = `Issue #${thread.issueNumber}`;
+  try {
+    const issue = await source.getIssue(thread.issueNumber);
+    title = `#${thread.issueNumber} ${issue.title}`;
+  } catch {
+    // fall back to the issue number
+  }
+
+  const silent = run.status === 'complete' || run.status === 'stopped';
+  const notif = new Notification({
+    title,
+    body: notificationBody(run.status),
+    silent,
+  });
+  notif.on('click', () => {
+    const win = mainWindow;
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    if (!win.webContents.isDestroyed()) {
+      win.webContents.send('kanbots:navigate-task', {
+        issueNumber: thread.issueNumber,
+        runId: run.id,
+      });
+    }
+  });
+  notif.show();
+}
+
 function activeWorkspaceInfo(): ActiveWorkspaceInfo | null {
   if (!activeWorkspace) return null;
   return { repoPath: activeWorkspace.repoPath, config: activeWorkspace.config };
@@ -523,6 +596,26 @@ function registerIpc(): void {
   ipcMain.handle('kanbots:window-close', () => {
     mainWindow?.close();
   });
+
+  ipcMain.handle(
+    'kanbots:set-notify-on-run-complete',
+    async (_event, enabled: boolean): Promise<{ ok: true } | { ok: false; error: string }> => {
+      if (!activeWorkspace) {
+        return { ok: false, error: 'no active workspace' };
+      }
+      try {
+        const next: WorkspaceConfig = {
+          ...activeWorkspace.config,
+          notifyOnRunComplete: enabled,
+        };
+        await writeWorkspaceConfig(activeWorkspace.repoPath, next);
+        activeWorkspace.config = next;
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
 }
 
 async function createWindow(): Promise<void> {
