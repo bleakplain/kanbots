@@ -71,6 +71,7 @@ export function createHandlers(opts: CreateHandlersOptions): Handlers {
     'agent-runs:stats': (args) => agentRuns.stats(deps, args),
     'agent-runs:checks:list': (args) => agentChecks.list(deps, args),
     'agent-runs:checks:run': (args) => agentChecks.runChecks(deps, args),
+    'agent-runs:checks:commands': () => agentChecks.commands(deps),
     'agent-runs:preview:get': (args) => agentPreview.getPreview(deps, args),
     'agent-runs:preview:start': (args) =>
       agentPreview.startRunPreview(deps, args),

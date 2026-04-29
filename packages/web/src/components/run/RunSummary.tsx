@@ -46,9 +46,28 @@ export interface RunSummaryProps {
   onRunChecks?: () => void;
 }
 
+type CheckCommandsMap = Record<
+  'typecheck' | 'tests' | 'lint' | 'e2e',
+  { command: string; args: string[] }
+>;
+
 export function RunSummary({ run, layout = 'inspector', onRunChecks }: RunSummaryProps) {
   const [checks, setChecks] = useState<AgentCheck[]>([]);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [commands, setCommands] = useState<CheckCommandsMap | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getCheckCommands()
+      .then((res) => {
+        if (!cancelled) setCommands(res);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!run) {
@@ -130,9 +149,9 @@ export function RunSummary({ run, layout = 'inspector', onRunChecks }: RunSummar
         <Stat k="Cost" v={fmtCost(run.totalCostUsd, run.costBudgetUsd)} />
       </div>
       <div className="kb-run-checks">
-        <CheckPill kind="tsc" check={tsc} />
-        <CheckPill kind="tests" check={tests} />
-        <CheckPill kind="lint" check={lint} />
+        <CheckPill kind="tsc" check={tsc} command={fmtCmd(commands?.typecheck)} />
+        <CheckPill kind="tests" check={tests} command={fmtCmd(commands?.tests)} />
+        <CheckPill kind="lint" check={lint} command={fmtCmd(commands?.lint)} />
         <button
           type="button"
           className="kb-btn ghost kb-run-checks-run"
@@ -155,7 +174,15 @@ function Stat({ k, v }: { k: string; v: ReactNode }) {
   );
 }
 
-function CheckPill({ kind, check }: { kind: string; check: AgentCheck | undefined }) {
+function CheckPill({
+  kind,
+  check,
+  command,
+}: {
+  kind: string;
+  check: AgentCheck | undefined;
+  command: string | undefined;
+}) {
   const status = check?.status ?? 'idle';
   const cls = status === 'pass' ? 'pass' : status === 'fail' ? 'fail' : status === 'running' ? 'run' : '';
   const icon = status === 'pass' ? '✓' : status === 'fail' ? '×' : status === 'running' ? '⟳' : '·';
@@ -165,10 +192,12 @@ function CheckPill({ kind, check }: { kind: string; check: AgentCheck | undefine
       : status === 'running'
         ? 'live'
         : '';
+  const baseTitle = check?.summary ?? `${kind} ${status}`;
+  const title = command ? `${baseTitle}\n$ ${command}` : baseTitle;
   return (
     <span
       className={`kb-check-pill ${cls}`}
-      title={check?.summary ?? `${kind} ${status}`}
+      title={title}
       aria-label={`${kind} ${status}`}
     >
       <span className="ico">{icon}</span>
@@ -176,6 +205,11 @@ function CheckPill({ kind, check }: { kind: string; check: AgentCheck | undefine
       {meta ? <span className="meta">{meta}</span> : null}
     </span>
   );
+}
+
+function fmtCmd(c: { command: string; args: string[] } | undefined): string | undefined {
+  if (!c) return undefined;
+  return [c.command, ...c.args].join(' ');
 }
 
 function fmtDuration(startIso: string, endIso: string): string {

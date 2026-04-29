@@ -1,10 +1,16 @@
 import {
-  defaultCheckCommand,
+  resolveCheckCommand,
   runCheck,
   type CheckCommand,
+  type CheckCommandOverrides,
   type CheckResult,
 } from '@kanbots/dispatcher';
-import type { AgentCheck, CheckKind, Store } from '@kanbots/local-store';
+import {
+  readWorkspaceConfig,
+  type AgentCheck,
+  type CheckKind,
+  type Store,
+} from '@kanbots/local-store';
 import { z } from 'zod';
 import { badRequest, notFound, parseArgs } from './errors.js';
 import type { HandlerDeps } from './types.js';
@@ -72,9 +78,10 @@ export async function runChecks(
     .map((kind) => deps.store.checks.start({ agentRunId: parsed.runId, kind }));
   for (const kind of kinds) queued.add(kind);
 
+  const overrides = await loadCheckOverrides(deps);
   const cwd = run.worktreePath;
   for (const checkRow of started) {
-    const command = defaultCheckCommand(checkRow.kind);
+    const command = resolveCheckCommand(checkRow.kind, overrides);
     void runImpl({ cwd, command })
       .then((result) => {
         finishCheck(deps.store, checkRow.id, result.status, result.summary);
@@ -102,4 +109,27 @@ function finishCheck(
   summary: string,
 ): void {
   store.checks.finish({ id, status, summary });
+}
+
+async function loadCheckOverrides(deps: HandlerDeps): Promise<CheckCommandOverrides | undefined> {
+  if (!deps.config.repoPath) return undefined;
+  try {
+    const cfg = await readWorkspaceConfig(deps.config.repoPath);
+    return cfg?.checks;
+  } catch {
+    return undefined;
+  }
+}
+
+export type ResolvedCheckCommands = Record<CheckKind, { command: string; args: string[] }>;
+
+export async function commands(deps: HandlerDeps): Promise<ResolvedCheckCommands> {
+  const overrides = await loadCheckOverrides(deps);
+  const kinds: CheckKind[] = ['typecheck', 'tests', 'lint', 'e2e'];
+  const out = {} as ResolvedCheckCommands;
+  for (const kind of kinds) {
+    const c = resolveCheckCommand(kind, overrides);
+    out[kind] = { command: c.command, args: c.args };
+  }
+  return out;
 }

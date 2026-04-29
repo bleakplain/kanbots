@@ -473,6 +473,10 @@ export interface BridgeChannels {
     args: { runId: number; kinds?: CheckKind[] };
     result: AgentCheck[];
   };
+  'agent-runs:checks:commands': {
+    args: void;
+    result: Record<CheckKind, { command: string; args: string[] }>;
+  };
   'agent-runs:preview:get': {
     args: { runId: number };
     result: PreviewStatePayload;

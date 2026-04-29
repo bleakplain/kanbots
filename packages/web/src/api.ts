@@ -207,6 +207,9 @@ export const api = {
   },
   getAgentRunChecks: (runId: number): Promise<AgentCheck[]> =>
     invoke('agent-runs:checks:list', { runId }),
+  getCheckCommands: (): Promise<
+    Record<'typecheck' | 'tests' | 'lint' | 'e2e', { command: string; args: string[] }>
+  > => invoke('agent-runs:checks:commands', undefined),
   runAgentRunChecks: (
     runId: number,
     kinds?: Array<'typecheck' | 'tests' | 'lint' | 'e2e'>,

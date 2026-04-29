@@ -57,8 +57,10 @@ export {
 
 export {
   defaultCheckCommand,
+  resolveCheckCommand,
   runCheck,
   type CheckCommand,
+  type CheckCommandOverrides,
   type CheckResult,
   type RunCheckOptions,
 } from './checks.js';
