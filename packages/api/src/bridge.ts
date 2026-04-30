@@ -683,6 +683,19 @@ export interface BridgeChannels {
 export interface ChatPayload {
   conversation: ChatConversation;
   messages: Message[];
+  /**
+   * Snapshot of every persisted agent_event for runs in this conversation's
+   * thread. The renderer merges this with live stream events (deduped by
+   * `id`) so the transcript survives across run boundaries — chat resume
+   * may reuse a run id, but a *new* chat run gets a new id and the live
+   * stream only follows one run at a time.
+   */
+  events: AgentEvent[];
+  /**
+   * Snapshot of every card attached to messages in this thread. Used the
+   * same way as `events`: merged with live stream cards, deduped by `id`.
+   */
+  cards: Card[];
   activeRun: AgentRun | null;
   latestRun: AgentRun | null;
 }

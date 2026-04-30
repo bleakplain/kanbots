@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import type { AgentRun, ChatConversation, Message } from '@kanbots/local-store';
+import type {
+  AgentEvent,
+  AgentRun,
+  Card,
+  ChatConversation,
+  Message,
+} from '@kanbots/local-store';
 import type { ChatPayload, ChatPostMessageResult } from '../bridge.js';
 import { alreadyActive, parseArgs } from './errors.js';
 import type { HandlerDeps } from './types.js';
@@ -53,6 +59,22 @@ const stopRunSchema = z
   .object({ runId: z.number().int().positive() })
   .strict();
 
+const DEFAULT_TITLE = 'New chat';
+
+/**
+ * Derive a human-friendly chat title from the first user message. Falls back
+ * to the default sentinel if the message is empty or all whitespace. Kept
+ * deterministic and zero-cost (no LLM round-trip) — the user can always
+ * rename via `chat:rename` if the auto-derived title is poor.
+ */
+function deriveChatTitle(body: string): string {
+  const firstLine = body.split('\n').find((line) => line.trim().length > 0) ?? '';
+  const cleaned = firstLine.replace(/\s+/g, ' ').trim();
+  if (cleaned.length === 0) return DEFAULT_TITLE;
+  if (cleaned.length <= 60) return cleaned;
+  return `${cleaned.slice(0, 57)}…`;
+}
+
 const SYSTEM_PROMPT_DEFAULT = `KANBOTS_CHAT_CONTEXT — this conversation is a general-purpose chat with the kanbots agent. It is NOT scoped to any single issue.
 
 You can use the kanban tools provided by the kanbots MCP server (createIssue, updateIssue, moveIssueStatus, archiveIssue, splitIssue, dispatchAgent, stopAgentRun, listIssues, getIssue, listAgentRuns, resolvePendingDecision) to act on the user's board, and the standard workspace tools (Bash, Read, Edit, Glob, Grep, Write) to inspect and edit code.
@@ -64,12 +86,16 @@ function makeChatPayload(
   conversation: ChatConversation,
 ): ChatPayload {
   const messages: Message[] = deps.store.messages.list(conversation.threadId);
+  const events: AgentEvent[] = deps.store.events.listByThread(conversation.threadId);
+  const cards: Card[] = deps.store.cards.listByThread(conversation.threadId);
   const activeRun = deps.store.agentRuns.findActiveForThread(conversation.threadId);
   const latestRun =
     activeRun ?? deps.store.agentRuns.findLatestForThread(conversation.threadId);
   return {
     conversation,
     messages,
+    events,
+    cards,
     activeRun,
     latestRun,
   };
@@ -85,7 +111,7 @@ export async function create(
 ): Promise<ChatPayload> {
   const parsed = parseArgs(createSchema, args ?? {});
   const conversation = deps.store.chatConversations.create({
-    title: parsed.title ?? 'New chat',
+    title: parsed.title ?? DEFAULT_TITLE,
   });
   return makeChatPayload(deps, conversation);
 }
@@ -155,12 +181,24 @@ export async function postMessage(
   }
   const dispatch = parsed.dispatch ?? true;
 
+  // Snapshot the existing message count *before* inserting so we can detect
+  // whether this is the first user turn — used below to auto-title an
+  // untitled chat from the first prompt.
+  const priorMessageCount = deps.store.messages.list(conversation.threadId).length;
+
   const message = deps.store.messages.create({
     threadId: conversation.threadId,
     role: 'user',
     body: parsed.body,
   });
   deps.store.chatConversations.touch(conversation.id);
+
+  if (priorMessageCount === 0 && conversation.title === DEFAULT_TITLE) {
+    const derived = deriveChatTitle(parsed.body);
+    if (derived !== DEFAULT_TITLE) {
+      deps.store.chatConversations.rename(conversation.id, derived);
+    }
+  }
 
   let dispatchError: string | null = null;
   let activeRun: AgentRun | null = null;

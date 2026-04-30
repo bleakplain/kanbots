@@ -38,7 +38,9 @@ export class ChatConversationsRepo {
    * thread is keyed off the chat-only sentinel owner/name and the
    * conversation id, so it never collides with a real issue thread and the
    * supervisor's per-thread invariants (one active run per thread) carry
-   * over to chat conversations unchanged.
+   * over to chat conversations unchanged. The chat row is inserted with a
+   * NULL thread_id first so the FK to threads(id) doesn't fail before the
+   * thread row exists.
    */
   create(input: CreateChatConversationInput): ChatConversation {
     const now = new Date().toISOString();
@@ -46,9 +48,9 @@ export class ChatConversationsRepo {
       const convInsert = this.db
         .prepare(
           `INSERT INTO chat_conversations (title, created_at, last_message_at, thread_id)
-           VALUES (?, ?, ?, ?)`,
+           VALUES (?, ?, ?, NULL)`,
         )
-        .run(input.title, now, now, 0);
+        .run(input.title, now, now);
       const conversationId = Number(convInsert.lastInsertRowid);
       const threadInsert = this.db
         .prepare(

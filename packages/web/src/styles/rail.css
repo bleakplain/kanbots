@@ -311,3 +311,119 @@
   color: var(--ink);
   border-color: var(--ink-3);
 }
+
+/* ---------- Chats section ---------- */
+.kb-rail-chats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+.kb-rail-chats-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 6px 6px;
+}
+.kb-rail-chats-head .kb-rail-label {
+  padding: 0;
+}
+.kb-rail-chats-new {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  border: 1px solid var(--hairline);
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+.kb-rail-chats-new:hover {
+  color: var(--ink);
+  border-color: var(--ink-2);
+  background: var(--bg-1);
+}
+.kb-rail-chats-search {
+  margin: 0 6px 6px;
+  background: var(--bg-1);
+  border: 1px solid var(--hairline);
+  color: var(--ink-1);
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-family: var(--ff-sans);
+  outline: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.kb-rail-chats-search:focus {
+  border-color: var(--accent-line);
+  background: color-mix(in oklch, var(--bg-1) 90%, var(--accent-soft));
+}
+.kb-rail-chats-search::placeholder {
+  color: var(--ink-3);
+}
+.kb-rail-chats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 2px;
+}
+.kb-rail-chats-empty {
+  font-size: 11px;
+  color: var(--ink-3);
+  padding: 6px 8px;
+}
+.kb-rail-chat-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  width: 100%;
+  min-width: 0;
+}
+.kb-rail-chat-row:hover {
+  background: var(--bg-1);
+  border-color: var(--hairline-soft);
+}
+.kb-rail-chat-title {
+  font-size: 12px;
+  color: var(--ink-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.kb-rail-chat-time {
+  font-size: 10px;
+  color: var(--ink-3);
+  font-family: var(--ff-mono);
+}
+.kb-rail-chats-more {
+  margin-top: 4px;
+  background: transparent;
+  border: 0;
+  color: var(--ink-3);
+  font-family: var(--ff-sans);
+  font-size: 10.5px;
+  text-align: left;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.kb-rail-chats-more:hover {
+  color: var(--ink-1);
+  background: var(--bg-1);
+}

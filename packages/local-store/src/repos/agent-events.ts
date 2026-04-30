@@ -72,6 +72,26 @@ export class AgentEventsRepo {
     return rows.map(rowToAgentEvent);
   }
 
+  /**
+   * Return every event for every agent_run on the given thread, ordered by
+   * created_at then seq. Used by the chat snapshot so a single conversation's
+   * transcript survives across run boundaries (chat resume reuses a run id,
+   * but a *new* chat run creates a new id and the renderer only subscribes
+   * live to one run at a time — without this, prior-run text would vanish
+   * from the UI).
+   */
+  listByThread(threadId: number): AgentEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT e.* FROM agent_events e
+         JOIN agent_runs r ON e.agent_run_id = r.id
+         WHERE r.thread_id = ?
+         ORDER BY e.created_at, e.agent_run_id, e.seq`,
+      )
+      .all(threadId) as AgentEventRow[];
+    return rows.map(rowToAgentEvent);
+  }
+
   findLatestToolUseByRun(runIds: readonly AgentRunId[]): Map<AgentRunId, AgentEvent> {
     const out = new Map<AgentRunId, AgentEvent>();
     if (runIds.length === 0) return out;

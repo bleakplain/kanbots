@@ -1,7 +1,11 @@
+import { useEffect, useMemo, useState } from 'react';
+import { api } from '../../api.js';
+import { getBridge } from '../../desktop-bridge.js';
+import { useFetch } from '../../hooks/useFetch.js';
 import { useIssues } from '../../hooks/useIssues.js';
 import { useWorkspace, type WorkspaceFolder } from '../../hooks/useWorkspace.js';
-import { colorForLogin } from '../../labels.js';
-import type { Issue } from '../../types.js';
+import { ageString, colorForLogin } from '../../labels.js';
+import type { ChatConversation, Issue } from '../../types.js';
 
 export interface LeftRailProps {
   selectedNumber: number | null;
@@ -82,6 +86,117 @@ function LiveAgentRow({
   );
 }
 
+function ChatList() {
+  const bridge = getBridge();
+  const { data: chats, loading, refetch } = useFetch<ChatConversation[]>(
+    bridge ? 'chats' : null,
+    () => api.listChats(),
+  );
+  const [filter, setFilter] = useState('');
+  const [expanded, setExpanded] = useState(false);
+
+  // Poll while mounted so auto-derived titles, renames, and newly created
+  // chats from other windows surface here without requiring the user to
+  // re-open the rail. Also refetch on focus — covers the common pattern of
+  // switching back from the chat window to the board.
+  useEffect(() => {
+    if (!bridge) return;
+    const interval = window.setInterval(() => {
+      void refetch();
+    }, 10_000);
+    const onFocus = (): void => {
+      void refetch();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [bridge, refetch]);
+
+  const filtered = useMemo(() => {
+    const list = chats ?? [];
+    const q = filter.trim().toLowerCase();
+    if (q.length === 0) return list;
+    return list.filter((c) => c.title.toLowerCase().includes(q));
+  }, [chats, filter]);
+
+  const visible = expanded ? filtered : filtered.slice(0, 6);
+
+  if (!bridge) return null;
+
+  return (
+    <div className="kb-rail-section kb-rail-chats">
+      <div className="kb-rail-chats-head">
+        <span className="kb-rail-label">Chats</span>
+        <button
+          type="button"
+          className="kb-rail-chats-new"
+          title="Start a new chat"
+          aria-label="Start a new chat"
+          onClick={() => {
+            void bridge.openChat?.(null);
+          }}
+        >
+          +
+        </button>
+      </div>
+      <input
+        type="search"
+        className="kb-rail-chats-search"
+        placeholder="Search chats…"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+      />
+      <div className="kb-rail-chats-list">
+        {loading && (chats === null || chats.length === 0) ? (
+          <div className="kb-rail-chats-empty">Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div className="kb-rail-chats-empty">
+            {filter ? 'No matches' : 'No chats yet'}
+          </div>
+        ) : (
+          visible.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className="kb-rail-chat-row"
+              title={c.title}
+              onClick={() => {
+                void bridge.openChat?.(c.id);
+                void refetch();
+              }}
+            >
+              <div className="kb-rail-chat-title">{c.title}</div>
+              <div className="kb-rail-chat-time">
+                {ageString(c.lastMessageAt)} ago
+              </div>
+            </button>
+          ))
+        )}
+        {!expanded && filtered.length > visible.length ? (
+          <button
+            type="button"
+            className="kb-rail-chats-more"
+            onClick={() => setExpanded(true)}
+          >
+            Show {filtered.length - visible.length} more
+          </button>
+        ) : null}
+        {expanded && filtered.length > 6 ? (
+          <button
+            type="button"
+            className="kb-rail-chats-more"
+            onClick={() => setExpanded(false)}
+          >
+            Show less
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function LeftRail({
   selectedNumber,
   onSelectIssue,
@@ -125,6 +240,8 @@ export function LeftRail({
           ))}
         </div>
       ) : null}
+
+      <ChatList />
 
       <div className="kb-rail-foot">
         <div className="kb-rail-avatar" style={{ background: meColor }} aria-hidden>

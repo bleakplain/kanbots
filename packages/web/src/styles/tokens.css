@@ -49,6 +49,12 @@
   --ff-sans: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   --ff-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --ff-serif: 'Instrument Serif', 'Times New Roman', Georgia, serif;
+
+  /* Tell the OS native form controls (select dropdowns, date pickers,
+     scrollbars) to render in dark mode. Without this, expanded <select>
+     menus fall back to a white system theme — illegible on our dark
+     surfaces. */
+  color-scheme: dark;
 }
 
 :root[data-theme='paper'] {
@@ -120,6 +126,45 @@
   font-family: inherit;
   color: inherit;
   cursor: pointer;
+}
+.kb-app select {
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--ink-1);
+  background: var(--bg-1);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  padding: 6px 28px 6px 10px;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.kb-app select:hover {
+  border-color: var(--ink-4);
+}
+.kb-app select:focus {
+  border-color: var(--accent-line);
+}
+.kb-app select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+/* Native option list inherits OS theme; color-scheme: dark on :root makes
+   the popup render dark. Explicit option colors are honored on Linux/Win
+   even if Safari ignores them. */
+.kb-app select option,
+.kb-app select optgroup {
+  background: var(--bg-1);
+  color: var(--ink-1);
 }
 .kb-app a {
   color: inherit;

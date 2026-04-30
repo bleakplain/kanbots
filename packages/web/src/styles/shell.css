@@ -253,3 +253,54 @@
 .kb-zone-center .issue-detail {
   background: transparent;
 }
+
+/* ---------- Floating chat FAB (anchored to .kb-window) ---------- */
+.kb-chat-fab {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 18px 0 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: oklch(0.18 0 0);
+  border: 1px solid var(--accent-line);
+  box-shadow:
+    0 8px 24px oklch(0 0 0 / 0.45),
+    0 0 0 1px oklch(1 0 0 / 0.04) inset;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    filter 120ms ease;
+}
+.kb-chat-fab:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow:
+    0 12px 30px oklch(0 0 0 / 0.5),
+    0 0 0 1px oklch(1 0 0 / 0.06) inset;
+}
+.kb-chat-fab:active {
+  transform: translateY(0);
+}
+.kb-chat-fab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.kb-chat-fab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.kb-chat-fab-label {
+  line-height: 1;
+}

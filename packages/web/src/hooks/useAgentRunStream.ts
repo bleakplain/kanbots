@@ -16,7 +16,18 @@ const EMPTY_STATE: AgentRunStreamState = {
   error: null,
 };
 
-export function useAgentRunStream(runId: number | null): AgentRunStreamState {
+/**
+ * @param runId run to subscribe to (null disables)
+ * @param resubscribeKey bump to force a fresh subscription even if `runId`
+ *   stays the same. Needed for chat conversations where a single run id
+ *   resumes after a terminal status — the server-side subscription closes
+ *   on terminal status, so without re-subscribing the renderer would miss
+ *   the events of the resumed run.
+ */
+export function useAgentRunStream(
+  runId: number | null,
+  resubscribeKey: number = 0,
+): AgentRunStreamState {
   const [state, setState] = useState<AgentRunStreamState>(EMPTY_STATE);
 
   useEffect(() => {
@@ -92,7 +103,7 @@ export function useAgentRunStream(runId: number | null): AgentRunStreamState {
         void bridge.invoke('agent-runs:events:unsubscribe', { subscriptionId });
       }
     };
-  }, [runId]);
+  }, [runId, resubscribeKey]);
 
   return state;
 }

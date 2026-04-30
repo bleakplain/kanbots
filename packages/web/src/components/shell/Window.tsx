@@ -26,7 +26,7 @@ const tweaksIcon = (
 );
 
 const chatIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
   </svg>
 );
@@ -82,19 +82,6 @@ export function Window({
             <span className="kb-branch">{branch}</span>
           </div>
           <div className="kb-tbar-actions">
-            {bridge?.openChat ? (
-              <button
-                type="button"
-                className="kb-tbar-btn"
-                title="Open chat with kanbots agent"
-                aria-label="Open agent chat"
-                onClick={() => {
-                  void bridge.openChat?.(null);
-                }}
-              >
-                {chatIcon}
-              </button>
-            ) : null}
             {onToggleTweaks ? (
               <button
                 type="button"
@@ -120,6 +107,20 @@ export function Window({
           </div>
         </div>
         {children}
+        {bridge?.openChat ? (
+          <button
+            type="button"
+            className="kb-chat-fab"
+            title="Open chat with kanbots agent"
+            aria-label="Open agent chat"
+            onClick={() => {
+              void bridge.openChat?.(null);
+            }}
+          >
+            <span className="kb-chat-fab-icon">{chatIcon}</span>
+            <span className="kb-chat-fab-label">Chat</span>
+          </button>
+        ) : null}
       </div>
     </div>
   );

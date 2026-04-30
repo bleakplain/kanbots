@@ -48,115 +48,50 @@ function setLocationHash(conversationId: number | null): void {
 }
 
 export function ChatApp() {
-  const [conversations, setConversations] = useState<ChatConversation[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(parseInitialConversationId);
-  const [loadingList, setLoadingList] = useState(true);
+  const [conversationId, setConversationId] = useState<number | null>(parseInitialConversationId);
+  const [bootstrapping, setBootstrapping] = useState(conversationId === null);
   const [error, setError] = useState<string | null>(null);
 
-  const refreshList = useCallback(async (): Promise<ChatConversation[]> => {
-    const list = await api.listChats();
-    setConversations(list);
-    return list;
-  }, []);
-
+  // When the window opens without a specific conversation in the hash, spin
+  // up a fresh conversation immediately so the user lands directly on a
+  // usable chat. Multi-conversation management is intentionally not in this
+  // window — users open more chat windows for parallel chats.
   useEffect(() => {
+    if (conversationId !== null) return;
     let cancelled = false;
-    setLoadingList(true);
-    refreshList()
-      .then((list) => {
+    setBootstrapping(true);
+    api
+      .createChat()
+      .then((payload) => {
         if (cancelled) return;
-        setSelectedId((prev) => {
-          if (prev !== null && list.some((c) => c.id === prev)) return prev;
-          return list[0]?.id ?? null;
-        });
+        setConversationId(payload.conversation.id);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
       })
       .finally(() => {
-        if (!cancelled) setLoadingList(false);
+        if (!cancelled) setBootstrapping(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [refreshList]);
+  }, [conversationId]);
 
   useEffect(() => {
-    setLocationHash(selectedId);
-  }, [selectedId]);
-
-  const handleNewChat = useCallback(async (): Promise<void> => {
-    try {
-      const payload = await api.createChat();
-      await refreshList();
-      setSelectedId(payload.conversation.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [refreshList]);
-
-  const handleDelete = useCallback(
-    async (id: number): Promise<void> => {
-      if (!window.confirm('Delete this conversation? Its history and any active run will be removed.')) {
-        return;
-      }
-      try {
-        await api.deleteChat(id);
-        const list = await refreshList();
-        if (selectedId === id) {
-          setSelectedId(list[0]?.id ?? null);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    },
-    [refreshList, selectedId],
-  );
-
-  const handleRename = useCallback(
-    async (id: number, currentTitle: string): Promise<void> => {
-      const next = window.prompt('Rename conversation', currentTitle);
-      if (next === null) return;
-      const trimmed = next.trim();
-      if (trimmed.length === 0 || trimmed === currentTitle) return;
-      try {
-        await api.renameChat(id, trimmed);
-        await refreshList();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    },
-    [refreshList],
-  );
+    setLocationHash(conversationId);
+  }, [conversationId]);
 
   return (
     <div className="kb-stage" data-host="desktop">
-      <div className="kb-window kb-app">
+      <div className="kb-window kb-app kb-chat-window">
         <ChatTitleBar />
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '240px 1fr',
-            height: 'calc(100% - 36px)',
-            minHeight: 0,
-          }}
-        >
-          <ChatSidebar
-            conversations={conversations}
-            selectedId={selectedId}
-            loading={loadingList}
-            onSelect={setSelectedId}
-            onNew={() => void handleNewChat()}
-            onDelete={(id) => void handleDelete(id)}
-            onRename={(id, t) => void handleRename(id, t)}
-          />
-          {selectedId !== null ? (
-            <ChatRoom
-              conversationId={selectedId}
-              onTouched={() => void refreshList()}
-            />
+        <div className="kb-chat-shell">
+          {conversationId !== null ? (
+            <ChatRoom conversationId={conversationId} />
           ) : (
-            <ChatEmpty onNew={() => void handleNewChat()} error={error} />
+            <ChatBootstrap loading={bootstrapping} error={error} />
           )}
         </div>
       </div>
@@ -205,185 +140,50 @@ function ChatTitleBar() {
   );
 }
 
-function ChatSidebar({
-  conversations,
-  selectedId,
+function ChatBootstrap({
   loading,
-  onSelect,
-  onNew,
-  onDelete,
-  onRename,
-}: {
-  conversations: ChatConversation[];
-  selectedId: number | null;
-  loading: boolean;
-  onSelect: (id: number) => void;
-  onNew: () => void;
-  onDelete: (id: number) => void;
-  onRename: (id: number, currentTitle: string) => void;
-}) {
-  const [filter, setFilter] = useState('');
-  const filtered = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    if (q.length === 0) return conversations;
-    return conversations.filter((c) => c.title.toLowerCase().includes(q));
-  }, [conversations, filter]);
-
-  return (
-    <aside
-      style={{
-        borderRight: '1px solid var(--hairline)',
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: 0,
-        background: 'var(--bg-1)',
-      }}
-    >
-      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button type="button" className="kb-btn primary" onClick={onNew}>
-          + New chat
-        </button>
-        <input
-          type="text"
-          placeholder="Search…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          style={{
-            background: 'var(--bg-2)',
-            border: '1px solid var(--hairline)',
-            color: 'var(--ink-1)',
-            padding: '6px 8px',
-            borderRadius: 6,
-            fontSize: 12,
-          }}
-        />
-      </div>
-      <div style={{ overflowY: 'auto', flex: 1, padding: '0 6px 10px' }}>
-        {loading ? (
-          <div style={{ color: 'var(--ink-3)', fontSize: 12, padding: 8 }}>
-            Loading…
-          </div>
-        ) : filtered.length === 0 ? (
-          <div style={{ color: 'var(--ink-3)', fontSize: 12, padding: 8 }}>
-            {filter ? 'No matches.' : 'No conversations yet.'}
-          </div>
-        ) : (
-          filtered.map((c) => {
-            const active = c.id === selectedId;
-            return (
-              <div
-                key={c.id}
-                onClick={() => onSelect(c.id)}
-                onDoubleClick={() => onRename(c.id, c.title)}
-                style={{
-                  padding: '8px 10px',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  background: active ? 'var(--bg-2)' : 'transparent',
-                  border: active
-                    ? '1px solid var(--accent-line)'
-                    : '1px solid transparent',
-                  marginBottom: 2,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 12.5,
-                      color: 'var(--ink-1)',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {c.title}
-                  </div>
-                  <div style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>
-                    {ageString(c.lastMessageAt)} ago
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="x-btn"
-                  title="Delete"
-                  aria-label="Delete conversation"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(c.id);
-                  }}
-                  style={{ visibility: active ? 'visible' : 'hidden' }}
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M3 6h18M9 6V3h6v3M5 6l1 14h12l1-14" />
-                  </svg>
-                </button>
-              </div>
-            );
-          })
-        )}
-      </div>
-    </aside>
-  );
-}
-
-function ChatEmpty({
-  onNew,
   error,
 }: {
-  onNew: () => void;
+  loading: boolean;
   error: string | null;
 }) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'column',
-        gap: 10,
-        color: 'var(--ink-3)',
-        padding: 30,
-      }}
-    >
-      <div>Start a conversation with the kanbots agent.</div>
-      <button type="button" className="kb-btn primary" onClick={onNew}>
-        + New chat
-      </button>
+    <div className="kb-chat-bootstrap">
       {error ? (
-        <div style={{ color: 'var(--failed)', fontSize: 12 }}>{error}</div>
-      ) : null}
+        <>
+          <div className="kb-chat-bootstrap-title">Couldn't start chat</div>
+          <div className="kb-chat-bootstrap-error">{error}</div>
+        </>
+      ) : (
+        <div className="kb-chat-bootstrap-title">
+          {loading ? 'Starting a new conversation…' : 'Waiting…'}
+        </div>
+      )}
     </div>
   );
 }
 
-function ChatRoom({
-  conversationId,
-  onTouched,
-}: {
-  conversationId: number;
-  onTouched: () => void;
-}) {
+function ChatRoom({ conversationId }: { conversationId: number }) {
   const [conversation, setConversation] = useState<ChatConversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [historyEvents, setHistoryEvents] = useState<AgentEvent[]>([]);
+  const [historyCards, setHistoryCards] = useState<Card[]>([]);
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
   const [latestRun, setLatestRun] = useState<AgentRun | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bumped after each send so useAgentRunStream re-subscribes — the server
+  // closes the subscription on terminal status, and a chat resume reuses
+  // the same run id, so without this bump we'd miss the resumed run's
+  // events.
+  const [streamGen, setStreamGen] = useState(0);
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
       const payload = await api.getChat(conversationId);
       setConversation(payload.conversation);
       setMessages(payload.messages);
+      setHistoryEvents(payload.events);
+      setHistoryCards(payload.cards);
       setActiveRun(payload.activeRun);
       setLatestRun(payload.latestRun);
       setError(null);
@@ -397,7 +197,7 @@ function ChatRoom({
   }, [refresh]);
 
   const displayRun = activeRun ?? latestRun;
-  const stream = useAgentRunStream(displayRun?.id ?? null);
+  const stream = useAgentRunStream(displayRun?.id ?? null, streamGen);
 
   // When the active run finishes (status flips to a terminal state) the
   // server-side row updates but our cached `activeRun` doesn't. Refetch
@@ -425,25 +225,42 @@ function ChatRoom({
       stream.status === 'starting' ||
       stream.status === 'awaiting_input');
 
+  // Merge persisted history with the live stream, deduped by id. The live
+  // stream is authoritative if both sides have an entry (it carries the
+  // freshest payload for an in-flight tool call).
+  const mergedEvents = useMemo(() => {
+    const byId = new Map<number, AgentEvent>();
+    for (const e of historyEvents) byId.set(e.id, e);
+    for (const e of stream.events) byId.set(e.id, e);
+    return Array.from(byId.values());
+  }, [historyEvents, stream.events]);
+
+  const mergedCards = useMemo(() => {
+    const byId = new Map<number, Card>();
+    for (const c of historyCards) byId.set(c.id, c);
+    for (const c of stream.cards) byId.set(c.id, c);
+    return Array.from(byId.values());
+  }, [historyCards, stream.cards]);
+
   const cardsByMessageId = useMemo(() => {
     const map = new Map<number, Card[]>();
-    for (const c of stream.cards) {
+    for (const c of mergedCards) {
       const arr = map.get(c.messageId) ?? [];
       arr.push(c);
       map.set(c.messageId, arr);
     }
     return map;
-  }, [stream.cards]);
+  }, [mergedCards]);
 
   const resultByToolUseId = useMemo(() => {
     const idx = new Map<string, AgentEvent>();
-    for (const e of stream.events) {
+    for (const e of mergedEvents) {
       if (e.type !== 'tool_result') continue;
       const id = (e.payload as { toolUseId?: unknown }).toolUseId;
       if (typeof id === 'string') idx.set(id, e);
     }
     return idx;
-  }, [stream.events]);
+  }, [mergedEvents]);
 
   type Item =
     | { kind: 'message'; sortKey: string; id: string; message: Message; cards: Card[] }
@@ -460,7 +277,7 @@ function ChatRoom({
         cards: cardsByMessageId.get(m.id) ?? [],
       });
     }
-    for (const e of stream.events) {
+    for (const e of mergedEvents) {
       if (e.type === 'tool_result') continue;
       all.push({ kind: 'event', sortKey: e.createdAt, id: `e${e.id}`, event: e });
     }
@@ -469,7 +286,7 @@ function ChatRoom({
       return a.sortKey < b.sortKey ? -1 : 1;
     });
     return all;
-  }, [messages, stream.events, cardsByMessageId]);
+  }, [messages, mergedEvents, cardsByMessageId]);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const stickyRef = useRef(true);
@@ -491,28 +308,31 @@ function ChatRoom({
       el.scrollTop = el.scrollHeight;
     });
     return () => cancelAnimationFrame(id);
-  }, [items.length, stream.events.length, isLive]);
+  }, [items.length, isLive]);
+
+  const status = stream.status ?? displayRun?.status ?? null;
+  const statusClass = status ? `kb-chat-status s-${status}` : 'kb-chat-status';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div
-        style={{
-          padding: '10px 16px',
-          borderBottom: '1px solid var(--hairline)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 14, color: 'var(--ink-1)' }}>
-          {conversation?.title ?? '…'}
-        </h2>
-        {displayRun ? (
-          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-            run #{displayRun.id} · {STATUS_LABEL[stream.status ?? displayRun.status]}
-          </span>
-        ) : null}
-        <span style={{ flex: 1 }} />
+    <div className="kb-chat-room">
+      <header className="kb-chat-header">
+        <div className="kb-chat-header-main">
+          <ChatTitleEditor
+            conversation={conversation}
+            onRenamed={(updated) => setConversation(updated)}
+          />
+          {displayRun ? (
+            <span className={statusClass}>
+              <span className="kb-chat-status-dot" />
+              run #{displayRun.id} · {STATUS_LABEL[stream.status ?? displayRun.status]}
+            </span>
+          ) : (
+            <span className="kb-chat-status">
+              <span className="kb-chat-status-dot idle" />
+              ready
+            </span>
+          )}
+        </div>
         {activeRun &&
         (stream.status === 'running' ||
           stream.status === 'starting' ||
@@ -527,23 +347,16 @@ function ChatRoom({
             Stop
           </button>
         ) : null}
-      </div>
+      </header>
 
-      <div
-        ref={scrollerRef}
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-          minHeight: 0,
-        }}
-      >
+      <div ref={scrollerRef} className="kb-chat-scroller">
         {items.length === 0 && !isLive ? (
-          <div style={{ color: 'var(--ink-3)', fontSize: 12 }}>
-            No messages yet. Send your first prompt below.
+          <div className="kb-chat-empty">
+            <div className="kb-chat-empty-emoji">💬</div>
+            <div className="kb-chat-empty-title">Start the conversation</div>
+            <div className="kb-chat-empty-sub">
+              Ask the kanbots agent anything about your board or codebase.
+            </div>
           </div>
         ) : null}
         {items.map((it) =>
@@ -576,24 +389,96 @@ function ChatRoom({
           (stream.status === 'running' || stream.status === 'starting')
         }
         onSent={() => {
-          onTouched();
+          setStreamGen((g) => g + 1);
           void refresh();
         }}
       />
-      {error ? (
-        <div
-          style={{
-            padding: '6px 14px',
-            color: 'var(--failed)',
-            background: 'var(--bg-2)',
-            borderTop: '1px solid var(--hairline)',
-            fontSize: 11,
-          }}
-        >
-          {error}
-        </div>
-      ) : null}
+      {error ? <div className="kb-chat-error">{error}</div> : null}
     </div>
+  );
+}
+
+function ChatTitleEditor({
+  conversation,
+  onRenamed,
+}: {
+  conversation: ChatConversation | null;
+  onRenamed: (next: ChatConversation) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  function startEdit(): void {
+    if (!conversation) return;
+    setDraft(conversation.title);
+    setEditing(true);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+  }
+
+  async function commit(): Promise<void> {
+    if (!conversation) return;
+    const trimmed = draft.trim();
+    if (trimmed.length === 0 || trimmed === conversation.title) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await api.renameChat(conversation.id, trimmed);
+      onRenamed(updated);
+    } catch {
+      // best-effort: silently ignore; the existing title stays.
+    } finally {
+      setSaving(false);
+      setEditing(false);
+    }
+  }
+
+  if (!conversation) {
+    return <h2 className="kb-chat-title">…</h2>;
+  }
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        className="kb-chat-title-input"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            void commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setEditing(false);
+          }
+        }}
+        disabled={saving}
+        maxLength={200}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="kb-chat-title kb-chat-title-btn"
+      title="Click to rename"
+      onClick={startEdit}
+    >
+      {conversation.title}
+      <span className="kb-chat-title-pencil" aria-hidden>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z" />
+        </svg>
+      </span>
+    </button>
   );
 }
 
@@ -649,88 +534,64 @@ function ReplyFooter({
   }
 
   return (
-    <div
-      style={{
-        borderTop: '1px solid var(--hairline)',
-        padding: 12,
-        background: 'var(--bg-1)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-      }}
-    >
+    <div className="kb-chat-foot">
       {showAdvanced ? (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          <ModelPicker
-            value={modelSelection}
-            onChange={setModelSelection}
-            agentRunsOnly
-            className="kb-chat-model-picker"
-          />
-          <textarea
-            placeholder="extra system prompt — optional"
-            value={appendSystemPrompt}
-            onChange={(e) => setAppendSystemPrompt(e.target.value)}
-            rows={2}
-            style={{
-              flex: 1,
-              background: 'var(--bg-2)',
-              border: '1px solid var(--hairline)',
-              color: 'var(--ink-1)',
-              padding: '6px 8px',
-              borderRadius: 6,
-              fontSize: 12,
-              resize: 'vertical',
-            }}
-          />
+        <div className="kb-chat-foot-advanced">
+          <label className="kb-chat-foot-field">
+            <span className="kb-chat-foot-field-label">Model</span>
+            <ModelPicker
+              value={modelSelection}
+              onChange={setModelSelection}
+              agentRunsOnly
+              className="kb-chat-model-picker"
+            />
+          </label>
+          <label className="kb-chat-foot-field kb-chat-foot-field-grow">
+            <span className="kb-chat-foot-field-label">Append system prompt</span>
+            <textarea
+              placeholder="optional — appended after the chat-mode prompt"
+              value={appendSystemPrompt}
+              onChange={(e) => setAppendSystemPrompt(e.target.value)}
+              rows={2}
+              className="kb-chat-foot-syspr"
+            />
+          </label>
         </div>
       ) : null}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+      <div className="kb-chat-foot-row">
         <textarea
+          className="kb-chat-foot-input"
           placeholder={
-            disabled ? 'agent is running…' : 'Ask the agent…  ⌘↵ to send'
+            disabled ? 'agent is running…' : 'Ask the agent…'
           }
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={onKey}
           disabled={sending}
           rows={3}
-          style={{
-            flex: 1,
-            background: 'var(--bg-2)',
-            border: '1px solid var(--hairline)',
-            color: 'var(--ink-1)',
-            padding: '8px 10px',
-            borderRadius: 6,
-            fontSize: 13,
-            fontFamily: 'inherit',
-            resize: 'vertical',
-            minHeight: 60,
-          }}
         />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <button
-            type="button"
-            className="kb-btn ghost"
-            onClick={() => setShowAdvanced((v) => !v)}
-            title="Toggle model / system prompt"
-            style={{ fontSize: 11 }}
-          >
-            {showAdvanced ? 'Hide opts' : 'Options'}
-          </button>
-          <button
-            type="button"
-            className="kb-btn primary"
-            onClick={() => void send()}
-            disabled={!body.trim() || sending || disabled}
-          >
-            {sending ? 'Sending…' : 'Send'}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="kb-btn primary kb-chat-send-btn"
+          onClick={() => void send()}
+          disabled={!body.trim() || sending || disabled}
+        >
+          {sending ? 'Sending…' : 'Send'}
+        </button>
       </div>
-      {error ? (
-        <div style={{ color: 'var(--failed)', fontSize: 11 }}>{error}</div>
-      ) : null}
+      <div className="kb-chat-foot-bottom">
+        <button
+          type="button"
+          className="kb-chat-foot-opts-toggle"
+          onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
+        >
+          <span className={`kb-chat-foot-opts-chev${showAdvanced ? ' open' : ''}`}>›</span>
+          {showAdvanced ? 'Hide options' : 'Options'}
+        </button>
+        <span className="kb-chat-foot-hint">⌘↵ to send</span>
+      </div>
+      {error ? <div className="kb-chat-foot-error">{error}</div> : null}
     </div>
   );
 }
@@ -746,14 +607,7 @@ function MessageRow({
 }) {
   if (message.role === 'system') {
     return (
-      <div
-        style={{
-          fontSize: 11,
-          color: 'var(--ink-3)',
-          textAlign: 'center',
-          padding: '4px 0',
-        }}
-      >
+      <div className="kb-chat-sysmsg">
         — {message.body} · {ageString(message.createdAt)} ago —
         {cards.map((c) =>
           c.type === 'decision' ? (
@@ -769,33 +623,13 @@ function MessageRow({
   }
   const isUser = message.role === 'user';
   const label = isUser ? 'you' : 'claude';
-  const labelColor = isUser ? 'var(--ink-1)' : 'var(--accent)';
-  const bg = isUser
-    ? 'var(--bg-2)'
-    : 'color-mix(in oklch, var(--bg-1) 80%, var(--accent-soft))';
-  const border = isUser ? 'var(--hairline)' : 'var(--accent-line)';
   return (
-    <div
-      style={{
-        background: bg,
-        border: `1px solid ${border}`,
-        borderRadius: 8,
-        padding: '10px 12px',
-      }}
-    >
-      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>
-        <b style={{ color: labelColor }}>{label}</b> · {ageString(message.createdAt)} ago
+    <div className={`kb-chat-msg ${isUser ? 'kb-chat-msg-user' : 'kb-chat-msg-agent'}`}>
+      <div className="kb-chat-msg-meta">
+        <b className="kb-chat-msg-author">{label}</b>
+        <span className="kb-chat-msg-time"> · {ageString(message.createdAt)} ago</span>
       </div>
-      <div
-        style={{
-          fontSize: 13,
-          lineHeight: 1.55,
-          color: 'var(--ink-1)',
-          whiteSpace: 'pre-wrap',
-        }}
-      >
-        {message.body}
-      </div>
+      <div className="kb-chat-msg-body">{message.body}</div>
       {cards.map((c) =>
         c.type === 'decision' ? (
           <DecisionInline
@@ -887,27 +721,12 @@ function EventRow({ event }: { event: AgentEvent }) {
   if (event.type === 'text') {
     const text = (event.payload as { text?: string }).text ?? '';
     return (
-      <div
-        style={{
-          background: 'color-mix(in oklch, var(--bg-1) 80%, var(--accent-soft))',
-          border: '1px solid var(--accent-line)',
-          borderRadius: 8,
-          padding: '10px 12px',
-        }}
-      >
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>
-          <b style={{ color: 'var(--accent)' }}>claude</b> · {ageString(event.createdAt)} ago
+      <div className="kb-chat-msg kb-chat-msg-agent">
+        <div className="kb-chat-msg-meta">
+          <b className="kb-chat-msg-author">claude</b>
+          <span className="kb-chat-msg-time"> · {ageString(event.createdAt)} ago</span>
         </div>
-        <div
-          style={{
-            fontSize: 13,
-            lineHeight: 1.55,
-            color: 'var(--ink-1)',
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {text}
-        </div>
+        <div className="kb-chat-msg-body">{text}</div>
       </div>
     );
   }

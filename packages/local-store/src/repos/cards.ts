@@ -108,6 +108,18 @@ export class CardsRepo {
     return rows.map(rowToCard);
   }
 
+  listByThread(threadId: number): Card[] {
+    const rows = this.db
+      .prepare(
+        `SELECT c.* FROM cards c
+         JOIN messages m ON c.message_id = m.id
+         WHERE m.thread_id = ?
+         ORDER BY c.id`,
+      )
+      .all(threadId) as CardRow[];
+    return rows.map(rowToCard);
+  }
+
   findPendingByRuns(runIds: readonly AgentRunId[]): Map<AgentRunId, Card> {
     const out = new Map<AgentRunId, Card>();
     if (runIds.length === 0) return out;

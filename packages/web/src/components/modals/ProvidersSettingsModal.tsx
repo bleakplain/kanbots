@@ -140,10 +140,11 @@ export function ProvidersSettingsModal({ onClose }: ProvidersSettingsModalProps)
 
   return (
     <div className="kb-modal-scrim" onMouseDown={onClose} role="dialog" aria-modal="true">
-      <div className="kb-modal kb-providers" onMouseDown={stopInner}>
+      <div className="kb-modal kb-modal-providers sm" onMouseDown={stopInner}>
         <div className="kb-modal-head">
           <h2>AI providers</h2>
-          <button type="button" className="kb-icon-btn" onClick={onClose} aria-label="Close" title="Close">
+          <span className="grow" />
+          <button type="button" className="x-btn" onClick={onClose} aria-label="Close" title="Close">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M6 6l12 12M18 6l-12 12" />
             </svg>
@@ -174,6 +175,7 @@ export function ProvidersSettingsModal({ onClose }: ProvidersSettingsModalProps)
               ) : null}
 
               <div className="kb-providers-defaults">
+                <div className="kb-providers-defaults-title">Defaults</div>
                 <label className="kb-sentry-row">
                   <span className="kb-sentry-label">Default provider</span>
                   <select
@@ -332,11 +334,11 @@ function ProviderSection({ spec, config, onChanged }: SectionProps) {
   const models = MODELS_BY_PROVIDER[spec.id] ?? [];
 
   return (
-    <fieldset className="kb-provider-section">
-      <legend className="kb-provider-legend">
+    <section className="kb-provider-section">
+      <header className="kb-provider-header">
         <strong>{spec.name}</strong>
         {config.hasKey ? <span className="kb-provider-badge">configured</span> : null}
-      </legend>
+      </header>
       <p className="kb-provider-desc">{spec.description}</p>
 
       <label className="kb-sentry-row kb-sentry-toggle">
@@ -399,10 +401,10 @@ function ProviderSection({ spec, config, onChanged }: SectionProps) {
         </select>
       </label>
 
-      <div className="kb-sentry-actions">
+      <div className="kb-provider-actions">
         <button
           type="button"
-          className="kb-btn ghost"
+          className="kb-btn"
           disabled={testState.kind === 'running'}
           onClick={() => void handleTest()}
         >
@@ -410,7 +412,7 @@ function ProviderSection({ spec, config, onChanged }: SectionProps) {
         </button>
         <button
           type="button"
-          className="kb-btn"
+          className="kb-btn primary"
           disabled={!dirty || saving}
           onClick={() => void handleSave()}
         >
@@ -440,6 +442,6 @@ function ProviderSection({ spec, config, onChanged }: SectionProps) {
       {config.lastError ? (
         <div className="kb-sentry-error">Last error: {config.lastError}</div>
       ) : null}
-    </fieldset>
+    </section>
   );
 }
