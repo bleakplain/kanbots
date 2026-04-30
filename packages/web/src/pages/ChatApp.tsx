@@ -279,6 +279,16 @@ function ChatRoom({ conversationId }: { conversationId: number }) {
     }
     for (const e of mergedEvents) {
       if (e.type === 'tool_result') continue;
+      // Skip empty / sentinel text events. The agent occasionally emits
+      // whitespace-only chunks between tool calls, and the supervisor may
+      // persist a sibling-briefing system message — neither is meaningful
+      // to the user but each renders as a short empty bubble that looks
+      // like a broken horizontal stripe in the transcript.
+      if (e.type === 'text') {
+        const text = (e.payload as { text?: string }).text ?? '';
+        if (text.trim().length === 0) continue;
+        if (text.trimStart().startsWith('[kanbots:sibling-briefing]')) continue;
+      }
       all.push({ kind: 'event', sortKey: e.createdAt, id: `e${e.id}`, event: e });
     }
     all.sort((a, b) => {
@@ -363,12 +373,16 @@ function ChatRoom({ conversationId }: { conversationId: number }) {
           it.kind === 'message' ? (
             <MessageRow key={it.id} message={it.message} cards={it.cards} onResolved={() => void refresh()} />
           ) : it.event.type === 'tool_use' ? (
-            <ToolUseCard
-              key={it.id}
-              toolUse={it.event}
-              result={resultByToolUseId.get(toolUseIdOf(it.event)) ?? null}
-              isLive={isLive}
-            />
+            <div key={it.id} className="kb-chat-toolwrap">
+              <span className="kb-chat-toolwrap-rail" aria-hidden />
+              <div className="kb-chat-toolwrap-body">
+                <ToolUseCard
+                  toolUse={it.event}
+                  result={resultByToolUseId.get(toolUseIdOf(it.event)) ?? null}
+                  isLive={isLive}
+                />
+              </div>
+            </div>
           ) : (
             <EventRow key={it.id} event={it.event} />
           ),

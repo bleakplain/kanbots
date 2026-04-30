@@ -1556,6 +1556,40 @@
   padding: 4px 0;
 }
 
+/* Tool-call wrapper — the chat scroller is `align-items: stretch` so a
+   bare `.kb-tool-card` would span the full transcript width and read as
+   disconnected horizontal bars. The wrapper indents the card under the
+   agent message lane and gives it a vertical accent rail, matching the
+   "claude is doing this" semantic. */
+.kb-chat-toolwrap {
+  align-self: flex-start;
+  display: flex;
+  gap: 8px;
+  width: min(86%, 640px);
+  padding-left: 8px;
+}
+.kb-chat-toolwrap-rail {
+  flex-shrink: 0;
+  width: 2px;
+  align-self: stretch;
+  background: var(--accent-line);
+  border-radius: 2px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.kb-chat-toolwrap-body {
+  flex: 1;
+  min-width: 0;
+}
+.kb-chat-toolwrap-body .kb-tool-card {
+  background: var(--bg-1);
+  border: 1px solid var(--hairline);
+}
+.kb-chat-toolwrap-body .kb-tool-head {
+  font-size: 12.5px;
+  padding: 9px 12px;
+}
+
 /* Footer: composer. */
 .kb-chat-foot {
   border-top: 1px solid var(--hairline);

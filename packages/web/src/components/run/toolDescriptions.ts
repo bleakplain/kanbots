@@ -123,7 +123,12 @@ export function describeToolUse(name: string, rawInput: unknown): ToolHeader {
       return { verb: 'Edit notebook', arg: p ? getDisplayPath(p) : null, body: 'edit' };
     }
     default: {
-      // Unknown / MCP / custom — just show the tool name and best-effort arg.
+      // Unknown / MCP / custom — strip the `mcp__<server>__` prefix that
+      // claude-code attaches to MCP tools, then show the bare name. The
+      // kanbots MCP server exposes things like `createIssue`, which the
+      // CLI surfaces as `mcp__kanbots__createIssue`; trimming the prefix
+      // keeps the chat transcript readable.
+      const verb = name.replace(/^mcp__[^_]+__/, '');
       const summaryFields: (keyof ToolInput)[] = [
         'file_path',
         'path',
@@ -141,7 +146,30 @@ export function describeToolUse(name: string, rawInput: unknown): ToolHeader {
           break;
         }
       }
-      return { verb: name, arg, body: 'plain' };
+      // If no recognized field, summarize the input object as a one-line
+      // hint so the user sees *something* about what the tool was called
+      // with (e.g. an MCP tool with `{ issueNumber: 12 }`).
+      if (arg === null && rawInput && typeof rawInput === 'object') {
+        const obj = rawInput as Record<string, unknown>;
+        const keys = Object.keys(obj);
+        if (keys.length > 0) {
+          const summary = keys
+            .slice(0, 4)
+            .map((k) => {
+              const v = obj[k];
+              const text =
+                typeof v === 'string'
+                  ? v
+                  : typeof v === 'number' || typeof v === 'boolean'
+                    ? String(v)
+                    : '…';
+              return `${k}: ${text}`;
+            })
+            .join(', ');
+          arg = truncateArg(summary);
+        }
+      }
+      return { verb, arg, body: 'plain' };
     }
   }
 }
