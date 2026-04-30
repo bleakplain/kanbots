@@ -4,7 +4,7 @@ import type { AgentEvent, AgentRunStatus, Card } from '@kanbots/local-store';
 import type { AgentRunEventPayload, SubscriptionRegistry } from '@kanbots/api';
 
 export interface ForwardEvent {
-  (payload: AgentRunEventPayload): void;
+  (payload: AgentRunEventPayload, ownerId: number | undefined): void;
 }
 
 export interface CreateSubscriptionRegistryOptions {
@@ -71,33 +71,33 @@ export function createSubscriptionRegistry(
     // Replay history. Events first, then cards — order matches what a fresh
     // SSE consumer would have received over time.
     for (const event of supervisor.listEvents(input.runId, input.sinceSeq)) {
-      forward({ subscriptionId, kind: 'event', event });
+      forward({ subscriptionId, kind: 'event', event }, input.ownerId);
     }
     for (const card of supervisor.listCards(input.runId)) {
-      forward({ subscriptionId, kind: 'card', card });
+      forward({ subscriptionId, kind: 'card', card }, input.ownerId);
     }
 
     if (supervisor.isActive(input.runId)) {
       const onEvent = (e: AgentEvent): void => {
         if (!entries.has(subscriptionId)) return;
-        forward({ subscriptionId, kind: 'event', event: e });
+        forward({ subscriptionId, kind: 'event', event: e }, input.ownerId);
       };
       const onStatus = (status: AgentRunStatus): void => {
         if (!entries.has(subscriptionId)) return;
-        forward({ subscriptionId, kind: 'status', status });
+        forward({ subscriptionId, kind: 'status', status }, input.ownerId);
         if (isTerminal(status)) {
-          forward({ subscriptionId, kind: 'end' });
+          forward({ subscriptionId, kind: 'end' }, input.ownerId);
           finalize(subscriptionId);
         }
       };
       const onCard = (c: Card): void => {
         if (!entries.has(subscriptionId)) return;
-        forward({ subscriptionId, kind: 'card', card: c });
+        forward({ subscriptionId, kind: 'card', card: c }, input.ownerId);
       };
       entry.unsub = supervisor.subscribe(input.runId, onEvent, onStatus, onCard);
     } else {
-      forward({ subscriptionId, kind: 'status', status: run.status });
-      forward({ subscriptionId, kind: 'end' });
+      forward({ subscriptionId, kind: 'status', status: run.status }, input.ownerId);
+      forward({ subscriptionId, kind: 'end' }, input.ownerId);
       finalize(subscriptionId);
     }
 

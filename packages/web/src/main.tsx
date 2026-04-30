@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
+import { ChatApp } from './pages/ChatApp.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import { getBridge } from './desktop-bridge.js';
 import type { ActiveWorkspaceInfo, RecentWorkspace } from './desktop-bridge.js';
@@ -51,17 +52,33 @@ if (!container) {
 }
 const root = createRoot(container);
 
-void bootstrap().then(({ workspace, recents, hasBridge, claudeAuthed }) => {
+const isChatWindow = window.location.hash.replace(/^#/, '').startsWith('/chat');
+
+if (isChatWindow) {
+  // Standalone chat window. Renders independently from the main board UI;
+  // bootstrap is unnecessary because the workspace lifecycle is owned by
+  // the main window — when this window opened, the workspace was already
+  // active.
   root.render(
     <StrictMode>
       <ErrorBoundary>
-        <App
-          workspace={workspace}
-          initialRecents={recents}
-          hasBridge={hasBridge}
-          initialClaudeAuthed={claudeAuthed}
-        />
+        <ChatApp />
       </ErrorBoundary>
     </StrictMode>,
   );
-});
+} else {
+  void bootstrap().then(({ workspace, recents, hasBridge, claudeAuthed }) => {
+    root.render(
+      <StrictMode>
+        <ErrorBoundary>
+          <App
+            workspace={workspace}
+            initialRecents={recents}
+            hasBridge={hasBridge}
+            initialClaudeAuthed={claudeAuthed}
+          />
+        </ErrorBoundary>
+      </StrictMode>,
+    );
+  });
+}

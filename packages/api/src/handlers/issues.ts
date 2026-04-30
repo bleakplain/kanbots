@@ -65,12 +65,22 @@ const addCommentSchema = z
   })
   .strict();
 
+const PROVIDER_ENUM = z.enum([
+  'claude-code',
+  'anthropic',
+  'openai',
+  'google',
+  'deepseek',
+  'xai',
+]);
+
 const postMessageSchema = z
   .object({
     number: z.number().int().positive(),
     body: z.string().min(1).max(65_536),
     dispatch: z.boolean().optional(),
     model: z.string().min(1).max(120).optional(),
+    provider: PROVIDER_ENUM.optional(),
     appendSystemPrompt: z.string().max(20_000).optional(),
   })
   .strict();
@@ -89,6 +99,7 @@ const dispatchSchema = z
       .nullable()
       .optional(),
     model: z.string().min(1).max(120).optional(),
+    provider: PROVIDER_ENUM.optional(),
   })
   .strict();
 
@@ -122,6 +133,13 @@ export interface PostMessageArgs {
   body: string;
   dispatch?: boolean;
   model?: string;
+  provider?:
+    | 'claude-code'
+    | 'anthropic'
+    | 'openai'
+    | 'google'
+    | 'deepseek'
+    | 'xai';
   appendSystemPrompt?: string;
 }
 
@@ -133,6 +151,13 @@ export interface DispatchArgs {
   number: number;
   fromStatus: StatusKey | null;
   model?: string;
+  provider?:
+    | 'claude-code'
+    | 'anthropic'
+    | 'openai'
+    | 'google'
+    | 'deepseek'
+    | 'xai';
 }
 
 export async function list(
@@ -312,6 +337,7 @@ export async function postMessage(
             issueNumber: parsed.number,
             prompt: parsed.body,
             ...(parsed.model !== undefined ? { model: parsed.model } : {}),
+            ...(parsed.provider !== undefined ? { provider: parsed.provider } : {}),
             appendSystemPrompt,
           });
         }
@@ -390,6 +416,7 @@ export async function dispatch(
     prompt: kickoff,
     appendSystemPrompt: buildTaskSystemPrompt(issue),
     ...(parsed.model !== undefined ? { model: parsed.model } : {}),
+    ...(parsed.provider !== undefined ? { provider: parsed.provider } : {}),
   });
   return { run, message };
 }

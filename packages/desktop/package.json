@@ -28,6 +28,7 @@
     "@kanbots/core": "workspace:*",
     "@kanbots/dispatcher": "workspace:*",
     "@kanbots/local-store": "workspace:*",
+    "@kanbots/mcp": "workspace:*",
     "@kanbots/web": "workspace:*",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.5",

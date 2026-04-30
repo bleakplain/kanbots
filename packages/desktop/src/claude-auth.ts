@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { shell } from 'electron';
@@ -9,15 +10,16 @@ import { shell } from 'electron';
 // documented by Anthropic — if login starts failing, check the latest
 // @anthropic-ai/claude-code package for updated values.
 const OAUTH = {
-  authorizeUrl: 'https://claude.ai/oauth/authorize',
-  tokenUrl: 'https://console.anthropic.com/v1/oauth/token',
+  authorizeUrl: 'https://claude.com/cai/oauth/authorize',
+  tokenUrl: 'https://platform.claude.com/v1/oauth/token',
   clientId: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
-  scopes: 'org:create_api_key user:profile user:inference',
-  loopbackPort: 54545,
+  scopes:
+    'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
+  successUrl: 'https://platform.claude.com/oauth/code/success?app=claude-code',
   loopbackPath: '/callback',
 };
 
-const CREDENTIALS_PATH = join(homedir(), '.claude', '.credentials.json');
+export const CREDENTIALS_PATH = join(homedir(), '.claude', '.credentials.json');
 
 interface StoredCredentials {
   claudeAiOauth?: {
@@ -34,6 +36,7 @@ type OAuthCreds = NonNullable<StoredCredentials['claudeAiOauth']>;
 interface PendingLogin {
   verifier: string;
   state: string;
+  port: number;
   server: Server;
   resolve: (creds: OAuthCreds) => void;
   reject: (err: Error) => void;
@@ -92,6 +95,7 @@ async function writeCredentials(oauth: OAuthCreds): Promise<void> {
 async function exchangeCode(
   code: string,
   verifier: string,
+  state: string,
   redirectUri: string,
 ): Promise<OAuthCreds> {
   const body = {
@@ -100,6 +104,7 @@ async function exchangeCode(
     redirect_uri: redirectUri,
     client_id: OAUTH.clientId,
     code_verifier: verifier,
+    state,
   };
   const res = await fetch(OAUTH.tokenUrl, {
     method: 'POST',
@@ -145,7 +150,7 @@ function handleCallback(req: IncomingMessage, res: ServerResponse): void {
     res.end('No pending login.');
     return;
   }
-  const url = new URL(req.url ?? '/', `http://localhost:${OAUTH.loopbackPort}`);
+  const url = new URL(req.url ?? '/', `http://${req.headers.host || 'localhost'}`);
   if (url.pathname !== OAUTH.loopbackPath) {
     res.statusCode = 404;
     res.end('Not found.');
@@ -155,40 +160,40 @@ function handleCallback(req: IncomingMessage, res: ServerResponse): void {
   const state = url.searchParams.get('state');
   const error = url.searchParams.get('error');
 
-  const finishHtml = (title: string, message: string): string =>
-    `<!doctype html><html><head><title>${title}</title><meta charset="utf-8"><style>body{font-family:system-ui;background:#111;color:#eee;display:grid;place-items:center;height:100vh;margin:0}.card{background:#1c1c1c;border:1px solid #333;border-radius:12px;padding:32px 40px;text-align:center;max-width:420px}h1{margin:0 0 8px;font-size:18px}p{margin:0;color:#aaa;font-size:14px}</style></head><body><div class="card"><h1>${title}</h1><p>${message}</p></div></body></html>`;
+  const failHtml = (message: string): string =>
+    `<!doctype html><html><head><title>Sign-in failed</title><meta charset="utf-8"><style>body{font-family:system-ui;background:#111;color:#eee;display:grid;place-items:center;height:100vh;margin:0}.card{background:#1c1c1c;border:1px solid #333;border-radius:12px;padding:32px 40px;text-align:center;max-width:420px}h1{margin:0 0 8px;font-size:18px}p{margin:0;color:#aaa;font-size:14px}</style></head><body><div class="card"><h1>Sign-in failed</h1><p>${message}</p></div></body></html>`;
 
   if (error) {
     res.setHeader('content-type', 'text/html');
-    res.end(finishHtml('Sign-in failed', `Anthropic returned: ${error}`));
+    res.end(failHtml(`Anthropic returned: ${error}`));
     endPending(new Error(`OAuth error: ${error}`));
     return;
   }
   if (!code || !state) {
     res.setHeader('content-type', 'text/html');
-    res.end(finishHtml('Sign-in failed', 'Missing code or state in callback.'));
+    res.end(failHtml('Missing code or state in callback.'));
     endPending(new Error('Missing code or state in callback.'));
     return;
   }
   if (state !== pending.state) {
     res.setHeader('content-type', 'text/html');
-    res.end(finishHtml('Sign-in failed', 'State mismatch — possible CSRF.'));
+    res.end(failHtml('State mismatch — possible CSRF.'));
     endPending(new Error('OAuth state mismatch.'));
     return;
   }
 
-  const verifier = pending.verifier;
-  const redirectUri = `http://localhost:${OAUTH.loopbackPort}${OAUTH.loopbackPath}`;
-  exchangeCode(code, verifier, redirectUri)
+  const { verifier, port } = pending;
+  const redirectUri = `http://localhost:${port}${OAUTH.loopbackPath}`;
+  exchangeCode(code, verifier, state, redirectUri)
     .then(async (creds) => {
       await writeCredentials(creds);
-      res.setHeader('content-type', 'text/html');
-      res.end(finishHtml('Signed in', 'You can close this tab and return to kanbots.'));
+      res.writeHead(302, { Location: OAUTH.successUrl });
+      res.end();
       endPending(null, creds);
     })
     .catch((err: Error) => {
       res.setHeader('content-type', 'text/html');
-      res.end(finishHtml('Sign-in failed', err.message));
+      res.end(failHtml(err.message));
       endPending(err);
     });
 }
@@ -209,33 +214,41 @@ export async function startClaudeLogin(): Promise<ClaudeLoginResult | ClaudeLogi
 
   const verifier = makeVerifier();
   const challenge = makeChallenge(verifier);
-  const state = base64url(randomBytes(16));
-  const redirectUri = `http://localhost:${OAUTH.loopbackPort}${OAUTH.loopbackPath}`;
+  const state = base64url(randomBytes(32));
 
   const server = createServer(handleCallback);
 
   const listenResult = await new Promise<Error | null>((resolve) => {
     server.once('error', (err) => resolve(err));
-    server.listen(OAUTH.loopbackPort, '127.0.0.1', () => resolve(null));
+    // Port 0 = OS-assigned ephemeral port, matching the Claude Code CLI.
+    server.listen(0, '127.0.0.1', () => resolve(null));
   });
   if (listenResult) {
     return {
       ok: false,
-      error: `Could not bind to localhost:${OAUTH.loopbackPort} for the OAuth callback. Close whatever is using that port and try again. (${listenResult.message})`,
+      error: `Could not bind to localhost for the OAuth callback. (${listenResult.message})`,
     };
   }
+  const address = server.address() as AddressInfo | null;
+  if (!address || typeof address === 'string') {
+    server.close();
+    return { ok: false, error: 'Could not determine OAuth callback port.' };
+  }
+  const port = address.port;
+  const redirectUri = `http://localhost:${port}${OAUTH.loopbackPath}`;
 
   const completion = new Promise<OAuthCreds>((resolve, reject) => {
     const timer = setTimeout(
       () => endPending(new Error('Sign-in timed out after 5 minutes.')),
       5 * 60 * 1000,
     );
-    pending = { verifier, state, server, resolve, reject, timer };
+    pending = { verifier, state, port, server, resolve, reject, timer };
   });
 
   const params = new URLSearchParams({
-    response_type: 'code',
+    code: 'true',
     client_id: OAUTH.clientId,
+    response_type: 'code',
     redirect_uri: redirectUri,
     scope: OAUTH.scopes,
     code_challenge: challenge,

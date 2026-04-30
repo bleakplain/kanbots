@@ -27,6 +27,28 @@ export interface SentryRuntime {
   restartPoller(): void;
 }
 
+export interface ProvidersRuntime {
+  encryptKey(plaintext: string): { buffer: Buffer; encryption: 'safe' | 'plain' };
+  decryptKey(buffer: Buffer | null, encryption: 'safe' | 'plain'): string | null;
+  safeStorageAvailable(): boolean;
+  /** True if Claude Code CLI OAuth credentials are present on disk. */
+  hasClaudeCodeCredentials(): boolean;
+}
+
+export interface ChatToolRuntime {
+  /**
+   * Returns the extra args + env vars to pass to `claude` so the chat
+   * agent has the kanbots MCP server wired in. Implementations issue a
+   * fresh per-run token and write the MCP config file.
+   */
+  prepareForRun(): Promise<{
+    extraArgs: string[];
+    env: Record<string, string>;
+    /** Called once the run terminates so the token can be revoked. */
+    cleanup: () => void;
+  }>;
+}
+
 export interface WorkspaceBudgetsAccessor {
   get(): { runCostBudgetUsd: number | null; sessionCostBudgetUsd: number | null };
   set(input: {
@@ -45,8 +67,10 @@ export interface HandlerDeps {
   autopilot: AutopilotManager;
   analyzeSentryError: SentryAnalyzerFn;
   sentry: SentryRuntime;
+  providers: ProvidersRuntime;
   budgets?: WorkspaceBudgetsAccessor;
   revealPath?: (path: string) => Promise<void>;
+  chatTools?: ChatToolRuntime;
 }
 
 export interface SubscriptionRegisterArgs {

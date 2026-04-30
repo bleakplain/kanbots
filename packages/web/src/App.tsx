@@ -7,7 +7,7 @@ import { useTweaks } from './hooks/useTweaks.js';
 import { IssuesProvider, useIssues } from './hooks/useIssues.js';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.js';
 import { Board } from './pages/Board.js';
-import { ClaudeLoginGate } from './pages/ClaudeLoginGate.js';
+import { ProvidersOverlay } from './pages/ProvidersOverlay.js';
 import { WorkspacePicker } from './pages/WorkspacePicker.js';
 import { api } from './api.js';
 import { Window } from './components/shell/Window.js';
@@ -225,16 +225,37 @@ function ShellHost({
 }
 
 export function App({ workspace, initialRecents, hasBridge, initialClaudeAuthed }: AppProps) {
-  const [claudeAuthed, setClaudeAuthed] = useState(initialClaudeAuthed);
+  const [providersTick, setProvidersTick] = useState(0);
   const { data: config } = useFetch(workspace ? 'config' : null, () => api.config());
+  const { data: providers } = useFetch(
+    workspace ? `providers:${providersTick}` : null,
+    () => api.getProviders(),
+  );
 
-  if (hasBridge && !claudeAuthed) {
-    return <ClaudeLoginGate onAuthed={() => setClaudeAuthed(true)} />;
-  }
-
+  // Workspace picker still gates first — without a workspace, there's no
+  // store to read provider config from.
   if (hasBridge && !workspace) {
     return (
       <WorkspacePicker initialRecents={initialRecents} onOpened={() => window.location.reload()} />
+    );
+  }
+
+  // Providers gate. The overlay is non-dismissible — the kanban renders
+  // behind it but can't be interacted with until at least one provider is
+  // configured. `initialClaudeAuthed` is still surfaced so a fresh install
+  // with Claude Code already signed in unblocks immediately on next reload.
+  const anyConfigured =
+    providers?.anyConfigured ?? (hasBridge ? initialClaudeAuthed : true);
+
+  if (hasBridge && !anyConfigured) {
+    return (
+      <IssuesProvider>
+        <ShellHost config={config ?? null} workspace={workspace} />
+        <ProvidersOverlay
+          reason={(providers?.providers ?? []).some((p) => p.lastError) ? 'all-failed' : 'none'}
+          onConfigured={() => setProvidersTick((t) => t + 1)}
+        />
+      </IssuesProvider>
     );
   }
 

@@ -29,6 +29,10 @@ const api: KanbotsBridge = {
     ipcRenderer.invoke('kanbots:set-notify-on-run-complete', enabled) as Promise<
       { ok: true } | { ok: false; error: string }
     >,
+  openChat: (conversationId: number | null) =>
+    ipcRenderer.invoke('kanbots:open-chat', conversationId) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
   invoke: <C extends ChannelName>(channel: C, args: ChannelArgs<C>) =>
     ipcRenderer.invoke(`${INVOKE_PREFIX}${channel}`, args) as Promise<ChannelResult<C>>,
   subscribe: (eventName: string, listener: (payload: unknown) => void) => {

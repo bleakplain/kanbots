@@ -8,6 +8,14 @@ import {
   type StreamEvent,
 } from './stream-parser.js';
 
+export type AgentRunProvider =
+  | 'claude-code'
+  | 'anthropic'
+  | 'openai'
+  | 'google'
+  | 'deepseek'
+  | 'xai';
+
 export interface StartAgentRunOptions {
   cwd: string;
   prompt: string;
@@ -15,8 +23,34 @@ export interface StartAgentRunOptions {
   allowedTools?: string;
   resumeFromSessionId?: string;
   model?: string;
+  /**
+   * Which provider to route the run through. Defaults to `claude-code`, which
+   * spawns the existing `claude` CLI. Other providers are not supported for
+   * agent runs in v1 — they're chat-only. Setting them here throws.
+   */
+  provider?: AgentRunProvider;
   command?: string;
   spawn?: SpawnFn;
+  /**
+   * Extra args appended to the underlying `claude` invocation, after the
+   * built-in flags. Used by the chat agent to wire `--mcp-config <path>`.
+   */
+  extraArgs?: readonly string[];
+  /**
+   * Extra env vars to merge onto the child process. Used to surface the
+   * tool-bridge URL + token to the MCP server.
+   */
+  env?: Record<string, string>;
+}
+
+export class UnsupportedProviderForAgentRunError extends Error {
+  constructor(provider: AgentRunProvider) {
+    super(
+      `Provider '${provider}' does not support agent runs in this version. ` +
+        `Switch to Claude Code (subscription) for agentic work, or use this provider for chat only.`,
+    );
+    this.name = 'UnsupportedProviderForAgentRunError';
+  }
 }
 
 export interface RunResult {
@@ -64,6 +98,10 @@ export const DEFAULT_GRACEFUL_TIMEOUT_MS = 10_000;
 const IS_WINDOWS = process.platform === 'win32';
 
 export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
+  const provider = opts.provider ?? 'claude-code';
+  if (provider !== 'claude-code') {
+    throw new UnsupportedProviderForAgentRunError(provider);
+  }
   const command = opts.command ?? 'claude';
   const spawnFn = opts.spawn ?? nodeSpawn;
 
@@ -87,6 +125,9 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
   if (opts.model) {
     args.push('--model', opts.model);
   }
+  if (opts.extraArgs && opts.extraArgs.length > 0) {
+    args.push(...opts.extraArgs);
+  }
 
   // On POSIX, become a process-group leader so we can signal the entire
   // tree of subprocesses claude spawns (Bash tool calls, pnpm install,
@@ -94,7 +135,9 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
   // model is different — we fall back to taskkill /T /F at escalation
   // time.
   const detached = !IS_WINDOWS;
-  const child = spawnFn(command, args, { cwd: opts.cwd, detached });
+  const spawnOpts: Parameters<SpawnFn>[2] = { cwd: opts.cwd, detached };
+  if (opts.env) spawnOpts.env = { ...process.env, ...opts.env };
+  const child = spawnFn(command, args, spawnOpts);
   const emitter = new EventEmitter();
 
   let result: RunResult | null = null;

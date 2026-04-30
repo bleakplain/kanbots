@@ -28,7 +28,15 @@ export {
 } from './workspace-bootstrap.js';
 
 export {
+  startToolBridge,
+  type ToolBridge,
+  type ToolDispatcher,
+} from './tool-bridge.js';
+export { dispatchChatTool } from './chat-tools-dispatch.js';
+
+export {
   createHandlers,
+  type ChatToolRuntime,
   type CreateHandlersOptions,
   type HandlerDeps,
   type Handlers,
@@ -61,6 +69,9 @@ export type {
   ChannelArgs,
   ChannelName,
   ChannelResult,
+  ChatConversation,
+  ChatPayload,
+  ChatPostMessageResult,
   CheckKind,
   Comment,
   Config,
@@ -89,6 +100,13 @@ export type {
   PostMessageResult,
   PreviewState,
   PreviewStatePayload,
+  ProviderConfigPayload,
+  ProviderId,
+  ProviderSaveInput,
+  ProviderSettingsInput,
+  ProviderSettingsPayload,
+  ProviderTestConnectionResult,
+  ProvidersPayload,
   ResolveCardResult,
   Role,
   RunStatsResult,

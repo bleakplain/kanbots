@@ -187,6 +187,27 @@ export function makeStubSupervisor(store: Store): StubSupervisor {
       for (const s of subs) s.onStatus(run.status);
       return run;
     },
+    async startChat(input) {
+      calls.push({ type: 'start', args: input });
+      const run = store.agentRuns.create({
+        threadId: input.threadId,
+        status: 'starting',
+      });
+      const updated = store.agentRuns.update(run.id, { status: 'running' });
+      activeRunIds.add(updated.id);
+      return updated;
+    },
+    async resumeChat(input) {
+      calls.push({ type: 'resume', args: input });
+      const run = store.agentRuns.update(input.runId, {
+        status: 'running',
+        endedAt: null,
+      });
+      activeRunIds.add(run.id);
+      const subs = subscribers.get(run.id) ?? [];
+      for (const s of subs) s.onStatus(run.status);
+      return run;
+    },
     async stop(runId) {
       calls.push({ type: 'stop', args: runId });
       const stopped = store.agentRuns.update(runId, {

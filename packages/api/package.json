@@ -22,6 +22,7 @@
   "dependencies": {
     "@kanbots/core": "workspace:*",
     "@kanbots/dispatcher": "workspace:*",
+    "@kanbots/llm": "workspace:*",
     "@kanbots/local-store": "workspace:*",
     "zod": "^3.24.1"
   },

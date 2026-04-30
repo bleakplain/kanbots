@@ -7,6 +7,8 @@ interface ThreadRow {
   repo_name: string;
   issue_number: number;
   created_at: string;
+  last_provider: string | null;
+  last_model: string | null;
 }
 
 function rowToThread(row: ThreadRow): Thread {
@@ -16,6 +18,8 @@ function rowToThread(row: ThreadRow): Thread {
     repoName: row.repo_name,
     issueNumber: row.issue_number,
     createdAt: row.created_at,
+    lastProvider: row.last_provider,
+    lastModel: row.last_model,
   };
 }
 
@@ -41,6 +45,8 @@ export class ThreadsRepo {
       repoName: input.repoName,
       issueNumber: input.issueNumber,
       createdAt,
+      lastProvider: null,
+      lastModel: null,
     };
   }
 
@@ -66,5 +72,11 @@ export class ThreadsRepo {
   list(): Thread[] {
     const rows = this.db.prepare('SELECT * FROM threads ORDER BY id').all() as ThreadRow[];
     return rows.map(rowToThread);
+  }
+
+  setLastModel(id: ThreadId, provider: string | null, model: string | null): void {
+    this.db
+      .prepare('UPDATE threads SET last_provider = ?, last_model = ? WHERE id = ?')
+      .run(provider, model, id);
   }
 }

@@ -15,6 +15,7 @@ import { AutopilotLaunchModal } from '../components/modals/AutopilotLaunchModal.
 import { CardPreview } from '../components/Card.js';
 import { Column } from '../components/Column.js';
 import { PersonaPickerModal } from '../components/modals/PersonaPickerModal.js';
+import { ProvidersSettingsModal } from '../components/modals/ProvidersSettingsModal.js';
 import { SentrySettingsModal } from '../components/modals/SentrySettingsModal.js';
 import { useBoardAgentStreams } from '../hooks/useBoardAgentStreams.js';
 import { useBoardFilters } from '../hooks/useBoardFilters.js';
@@ -162,6 +163,7 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
   const [autopilotLaunchOpen, setAutopilotLaunchOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [sentrySettingsOpen, setSentrySettingsOpen] = useState(false);
+  const [providersSettingsOpen, setProvidersSettingsOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useSelection();
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -322,6 +324,15 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
           <button
             type="button"
             className="kb-btn ghost"
+            onClick={() => setProvidersSettingsOpen(true)}
+            title="AI providers"
+            aria-label="AI providers"
+          >
+            Providers
+          </button>
+          <button
+            type="button"
+            className="kb-btn ghost"
             onClick={() => setSentrySettingsOpen(true)}
             title="Sentry integration settings"
             aria-label="Sentry settings"
@@ -473,6 +484,9 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
           onClose={() => setArchiveOpen(false)}
           onOpenDetail={(n) => onOpenDetail?.(n)}
         />
+      ) : null}
+      {providersSettingsOpen ? (
+        <ProvidersSettingsModal onClose={() => setProvidersSettingsOpen(false)} />
       ) : null}
       {sentrySettingsOpen ? (
         <SentrySettingsModal onClose={() => setSentrySettingsOpen(false)} />

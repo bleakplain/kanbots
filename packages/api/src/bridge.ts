@@ -17,6 +17,7 @@ import type {
   Card,
   CardStatus,
   CardType,
+  ChatConversation,
   CheckKind,
   Message,
   PreviewState,
@@ -56,6 +57,7 @@ export type {
   Card,
   CardStatus,
   CardType,
+  ChatConversation,
   CheckKind,
   Message,
   PreviewState,
@@ -150,6 +152,56 @@ export interface SentryAnalyzerInput {
 }
 
 export type SentryAnalyzerFn = (input: SentryAnalyzerInput) => Promise<SentrySuggestion>;
+
+export type ProviderId =
+  | 'claude-code'
+  | 'anthropic'
+  | 'openai'
+  | 'google'
+  | 'deepseek'
+  | 'xai';
+
+export interface ProviderConfigPayload {
+  id: ProviderId;
+  enabled: boolean;
+  hasKey: boolean;
+  defaultModel: string | null;
+  keyEncryption: 'safe' | 'plain';
+  lastValidatedAt: string | null;
+  lastError: string | null;
+}
+
+export interface ProviderSettingsPayload {
+  defaultProvider: ProviderId | null;
+  defaultModel: string | null;
+}
+
+export interface ProvidersPayload {
+  providers: ProviderConfigPayload[];
+  settings: ProviderSettingsPayload;
+  safeStorageAvailable: boolean;
+  /** True iff at least one provider is enabled and has usable credentials. */
+  anyConfigured: boolean;
+}
+
+export interface ProviderSaveInput {
+  id: ProviderId;
+  enabled?: boolean;
+  defaultModel?: string | null;
+  /** New API key in plaintext. If null, clears the stored key. If omitted, keeps existing. */
+  apiKey?: string | null;
+}
+
+export interface ProviderTestConnectionResult {
+  ok: boolean;
+  error?: string;
+  models?: string[];
+}
+
+export interface ProviderSettingsInput {
+  defaultProvider?: ProviderId | null;
+  defaultModel?: string | null;
+}
 
 export interface SentryConfigPayload {
   enabled: boolean;
@@ -439,7 +491,12 @@ export interface BridgeChannels {
   };
   'issues:list-runs': { args: { number: number }; result: AgentRun[] };
   'issues:dispatch': {
-    args: { number: number; fromStatus: StatusKey | null; model?: string };
+    args: {
+      number: number;
+      fromStatus: StatusKey | null;
+      model?: string;
+      provider?: ProviderId;
+    };
     result: DispatchResult;
   };
   'issues:start-agent': {
@@ -449,6 +506,7 @@ export interface BridgeChannels {
       prompt: string;
       appendSystemPrompt?: string;
       model?: string;
+      provider?: ProviderId;
     };
     result: AgentRun;
   };
@@ -578,6 +636,63 @@ export interface BridgeChannels {
     args: { issueNumber: number };
     result: DecoratedIssue;
   };
+  'providers:get': { args: void; result: ProvidersPayload };
+  'providers:save': { args: ProviderSaveInput; result: ProvidersPayload };
+  'providers:test-connection': {
+    args: { id: ProviderId; apiKey?: string };
+    result: ProviderTestConnectionResult;
+  };
+  'providers:set-defaults': {
+    args: ProviderSettingsInput;
+    result: ProvidersPayload;
+  };
+  'chat:list': { args: void; result: ChatConversation[] };
+  'chat:create': {
+    args: { title?: string };
+    result: ChatPayload;
+  };
+  'chat:get': {
+    args: { conversationId: number };
+    result: ChatPayload;
+  };
+  'chat:rename': {
+    args: { conversationId: number; title: string };
+    result: ChatConversation;
+  };
+  'chat:delete': {
+    args: { conversationId: number };
+    result: { ok: true };
+  };
+  'chat:post-message': {
+    args: {
+      conversationId: number;
+      body: string;
+      dispatch?: boolean;
+      model?: string;
+      provider?: ProviderId;
+      appendSystemPrompt?: string;
+    };
+    result: ChatPostMessageResult;
+  };
+  'chat:stop-run': {
+    args: { runId: number };
+    result: AgentRun;
+  };
+}
+
+export interface ChatPayload {
+  conversation: ChatConversation;
+  messages: Message[];
+  activeRun: AgentRun | null;
+  latestRun: AgentRun | null;
+}
+
+export interface ChatPostMessageResult {
+  conversation: ChatConversation;
+  message: Message;
+  activeRun: AgentRun | null;
+  latestRun: AgentRun | null;
+  dispatchError?: string;
 }
 
 export type ChannelName = keyof BridgeChannels;

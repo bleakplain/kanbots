@@ -12,6 +12,9 @@ import type {
   AutopilotKind,
   AutopilotSession,
   Card,
+  ChatConversation,
+  ChatPayload,
+  ChatPostMessageResult,
   Comment,
   Config,
   CreateIssueInput,
@@ -22,6 +25,11 @@ import type {
   Message,
   PendingDecisionPayload,
   PreviewStatePayload,
+  ProviderId,
+  ProviderSaveInput,
+  ProviderSettingsInput,
+  ProviderTestConnectionResult,
+  ProvidersPayload,
   SentryConfigInput,
   SentryConfigPayload,
   SentrySuggestion,
@@ -49,6 +57,7 @@ export interface DismissCardResult {
 export interface PostMessageOptions {
   dispatch?: boolean;
   model?: string;
+  provider?: ProviderId;
   appendSystemPrompt?: string;
 }
 
@@ -317,4 +326,40 @@ export const api = {
     invoke('sentry:analyze', { issueNumber }),
   applySentrySuggestion: (issueNumber: number): Promise<Issue> =>
     invoke('sentry:apply-suggestion', { issueNumber }),
+  getProviders: (): Promise<ProvidersPayload> =>
+    invoke('providers:get', undefined),
+  saveProvider: (input: ProviderSaveInput): Promise<ProvidersPayload> =>
+    invoke('providers:save', input),
+  testProviderConnection: (
+    input: { id: ProviderId; apiKey?: string },
+  ): Promise<ProviderTestConnectionResult> =>
+    invoke('providers:test-connection', input),
+  setProviderDefaults: (input: ProviderSettingsInput): Promise<ProvidersPayload> =>
+    invoke('providers:set-defaults', input),
+  listChats: (): Promise<ChatConversation[]> => invoke('chat:list', undefined),
+  createChat: (title?: string): Promise<ChatPayload> => {
+    const args: ChannelArgs<'chat:create'> = title !== undefined ? { title } : {};
+    return invoke('chat:create', args);
+  },
+  getChat: (conversationId: number): Promise<ChatPayload> =>
+    invoke('chat:get', { conversationId }),
+  renameChat: (conversationId: number, title: string): Promise<ChatConversation> =>
+    invoke('chat:rename', { conversationId, title }),
+  deleteChat: (conversationId: number): Promise<{ ok: true }> =>
+    invoke('chat:delete', { conversationId }),
+  postChatMessage: (
+    conversationId: number,
+    body: string,
+    opts: PostMessageOptions = {},
+  ): Promise<ChatPostMessageResult> => {
+    const args: ChannelArgs<'chat:post-message'> = { conversationId, body };
+    if (opts.dispatch !== undefined) args.dispatch = opts.dispatch;
+    if (opts.model !== undefined) args.model = opts.model;
+    if (opts.provider !== undefined) args.provider = opts.provider;
+    if (opts.appendSystemPrompt !== undefined) {
+      args.appendSystemPrompt = opts.appendSystemPrompt;
+    }
+    return invoke('chat:post-message', args);
+  },
+  stopChatRun: (runId: number): Promise<AgentRun> => invoke('chat:stop-run', { runId }),
 } as const;

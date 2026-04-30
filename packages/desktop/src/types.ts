@@ -33,6 +33,9 @@ export interface KanbotsBridge {
   setNotifyOnRunComplete(
     enabled: boolean,
   ): Promise<{ ok: true } | { ok: false; error: string }>;
+  openChat?(
+    conversationId: number | null,
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
   invoke<C extends ChannelName>(channel: C, args: ChannelArgs<C>): Promise<ChannelResult<C>>;
   subscribe(eventName: string, listener: (payload: unknown) => void): () => void;
 }

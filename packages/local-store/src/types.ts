@@ -1,4 +1,5 @@
 export type ThreadId = number;
+export type ChatConversationId = number;
 export type MessageId = number;
 export type CardId = number;
 export type AgentRunId = number;
@@ -33,6 +34,16 @@ export interface Thread {
   repoName: string;
   issueNumber: number;
   createdAt: string;
+  lastProvider: string | null;
+  lastModel: string | null;
+}
+
+export interface ChatConversation {
+  id: ChatConversationId;
+  title: string;
+  createdAt: string;
+  lastMessageAt: string;
+  threadId: ThreadId;
 }
 
 export interface Message {
@@ -75,6 +86,7 @@ export interface AgentRun {
   stopEscalation: 'sigterm' | 'sigkill' | null;
   sessionId: string | null;
   model: string | null;
+  provider: string | null;
   totalCostUsd: number | null;
   costBudgetUsd: number | null;
   durationMs: number | null;
@@ -186,6 +198,27 @@ export interface AutopilotSession {
   cycleIndex: number;
   currentChildRunId: number | null;
   children: AutopilotChildEntry[];
+}
+
+export type ProviderId = 'claude-code' | 'anthropic' | 'openai' | 'google' | 'deepseek' | 'xai';
+export type ProviderKeyEncryption = 'safe' | 'plain';
+
+export interface ProviderConfig {
+  id: ProviderId;
+  enabled: boolean;
+  defaultModel: string | null;
+  keyEncrypted: Buffer | null;
+  keyEncryption: ProviderKeyEncryption;
+  lastValidatedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProviderSettings {
+  defaultProvider: ProviderId | null;
+  defaultModel: string | null;
+  envMigrationDone: boolean;
 }
 
 export type SentryTokenEncryption = 'safe' | 'plain';

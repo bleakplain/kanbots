@@ -1208,3 +1208,98 @@
   gap: 8px;
   margin-top: 4px;
 }
+
+/* === Providers settings ============================================ */
+.kb-providers-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.kb-providers-defaults {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--kb-border, #2a2a2a);
+  border-radius: 6px;
+}
+.kb-providers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kb-provider-section {
+  border: 1px solid var(--kb-border, #2a2a2a);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kb-provider-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+  font-size: 13px;
+}
+.kb-provider-badge {
+  font-size: 11px;
+  background: var(--kb-success-bg, #163);
+  color: var(--kb-success-fg, #9f9);
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: lowercase;
+}
+.kb-provider-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--kb-text-muted, #999);
+}
+
+/* === Empty-state overlay (no provider configured) ================== */
+.kb-providers-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+  /* Block all interaction with the kanban behind it. */
+  pointer-events: auto;
+}
+.kb-providers-overlay-card {
+  background: var(--kb-warn-bg, #2a1a00);
+  border: 2px solid var(--kb-warn-border, #f80);
+  color: var(--kb-warn-fg, #fb0);
+  border-radius: 10px;
+  padding: 28px 32px;
+  max-width: 520px;
+  text-align: center;
+  box-shadow: 0 12px 60px rgba(255, 140, 0, 0.25);
+}
+.kb-providers-overlay-icon {
+  color: var(--kb-warn-border, #f80);
+  margin-bottom: 8px;
+}
+.kb-providers-overlay-title {
+  font-size: 20px;
+  margin: 0 0 8px;
+  color: #fff;
+}
+.kb-providers-overlay-body {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+.kb-providers-overlay-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}

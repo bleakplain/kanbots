@@ -16,6 +16,7 @@ interface AgentRunRow {
   stop_escalation: string | null;
   session_id: string | null;
   model: string | null;
+  provider: string | null;
   total_cost_usd: number | null;
   cost_budget_usd: number | null;
   duration_ms: number | null;
@@ -40,6 +41,7 @@ function rowToAgentRun(row: AgentRunRow): AgentRun {
     stopEscalation: (row.stop_escalation as AgentRun['stopEscalation']) ?? null,
     sessionId: row.session_id,
     model: row.model,
+    provider: row.provider,
     totalCostUsd: row.total_cost_usd,
     costBudgetUsd: row.cost_budget_usd,
     durationMs: row.duration_ms,
@@ -68,6 +70,7 @@ export interface UpdateAgentRunPatch {
   stopEscalation?: 'sigterm' | 'sigkill' | null;
   sessionId?: string | null;
   model?: string | null;
+  provider?: string | null;
   totalCostUsd?: number | null;
   costBudgetUsd?: number | null;
   durationMs?: number | null;
@@ -88,6 +91,7 @@ const PATCH_COLUMNS: Record<keyof UpdateAgentRunPatch, string> = {
   stopEscalation: 'stop_escalation',
   sessionId: 'session_id',
   model: 'model',
+  provider: 'provider',
   totalCostUsd: 'total_cost_usd',
   costBudgetUsd: 'cost_budget_usd',
   durationMs: 'duration_ms',
@@ -129,6 +133,7 @@ export class AgentRunsRepo {
       stopEscalation: null,
       sessionId: null,
       model: null,
+      provider: null,
       totalCostUsd: null,
       costBudgetUsd: null,
       durationMs: null,

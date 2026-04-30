@@ -5,6 +5,8 @@ release/
 .vite/
 .cache/
 coverage/
+claude-code-main/
+claude-code-main.zip
 
 *.log
 *.tsbuildinfo

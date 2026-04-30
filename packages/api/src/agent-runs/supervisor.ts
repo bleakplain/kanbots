@@ -85,6 +85,7 @@ export interface StartRunInput {
   prompt: string;
   appendSystemPrompt?: string;
   model?: string;
+  provider?: import('@kanbots/dispatcher').AgentRunProvider;
   costBudgetUsd?: number | null;
 }
 
@@ -93,6 +94,35 @@ export interface ResumeRunInput {
   prompt: string;
   appendSystemPrompt?: string;
   costBudgetUsd?: number | null;
+}
+
+export interface StartChatInput {
+  threadId: number;
+  prompt: string;
+  appendSystemPrompt?: string;
+  model?: string;
+  provider?: import('@kanbots/dispatcher').AgentRunProvider;
+  costBudgetUsd?: number | null;
+  /**
+   * Extra args appended to the underlying `claude` invocation. Used by the
+   * standalone chat agent to wire its MCP server (`--mcp-config <path>`) so
+   * the chat agent can call kanban tools.
+   */
+  extraArgs?: string[];
+  /**
+   * Stable env vars added to the agent process. Used to pass the localhost
+   * tool-bridge URL + token to the MCP server.
+   */
+  env?: Record<string, string>;
+}
+
+export interface ResumeChatInput {
+  runId: number;
+  prompt: string;
+  appendSystemPrompt?: string;
+  costBudgetUsd?: number | null;
+  extraArgs?: string[];
+  env?: Record<string, string>;
 }
 
 export type AgentEventListener = (event: AgentEvent) => void;
@@ -129,6 +159,8 @@ const COOLDOWN_MAX_MS = 300_000;
 export interface AgentSupervisor {
   start(input: StartRunInput): Promise<AgentRun>;
   resume(input: ResumeRunInput): Promise<AgentRun>;
+  startChat(input: StartChatInput): Promise<AgentRun>;
+  resumeChat(input: ResumeChatInput): Promise<AgentRun>;
   stop(runId: number): Promise<AgentRun>;
   getRun(runId: number): AgentRun | null;
   listEvents(runId: number, sinceSeq?: number): AgentEvent[];
@@ -601,6 +633,81 @@ export async function createSupervisor(
     }
   }
 
+  async function startChat(input: StartChatInput): Promise<AgentRun> {
+    const conflicting = findActiveRunForThread(input.threadId);
+    if (conflicting !== null) {
+      throw threadAlreadyActiveError(conflicting);
+    }
+    const cd = snapshotCooldown();
+    if (cd.active) throw new RateLimitedError(cd);
+    let run = store.agentRuns.create({ threadId: input.threadId, status: 'starting' });
+    const budget = resolveBudget(input.costBudgetUsd);
+    const provider = input.provider ?? 'claude-code';
+    run = store.agentRuns.update(run.id, {
+      ...(input.model !== undefined ? { model: input.model } : {}),
+      provider,
+      ...(budget !== null ? { costBudgetUsd: budget } : {}),
+    });
+    store.threads.setLastModel(input.threadId, provider, input.model ?? null);
+    const composed = composeSystemPrompt(run.id, input.appendSystemPrompt);
+    persistBriefing(run.id, composed.briefing);
+    const handle = startAgent({
+      cwd: repoPath,
+      prompt: input.prompt,
+      appendSystemPrompt: composed.prompt,
+      ...(input.model !== undefined ? { model: input.model } : {}),
+      provider,
+      ...(input.extraArgs !== undefined ? { extraArgs: input.extraArgs } : {}),
+      ...(input.env !== undefined ? { env: input.env } : {}),
+    });
+    run = store.agentRuns.update(run.id, {
+      status: 'running',
+      pid: handle.pid,
+    });
+    wireHandle(run, handle);
+    return run;
+  }
+
+  async function resumeChat(input: ResumeChatInput): Promise<AgentRun> {
+    const cd = snapshotCooldown();
+    if (cd.active) throw new RateLimitedError(cd);
+    const existing = store.agentRuns.findById(input.runId);
+    if (!existing) throw new Error(`agent run ${input.runId} not found`);
+    if (active.has(input.runId)) {
+      throw new Error(`agent run ${input.runId} is already active`);
+    }
+    const conflicting = findActiveRunForThread(existing.threadId);
+    if (conflicting !== null && conflicting.id !== input.runId) {
+      throw threadAlreadyActiveError(conflicting);
+    }
+    if (!existing.sessionId) {
+      throw new Error(`agent run ${input.runId} has no session_id to resume`);
+    }
+    const composed = composeSystemPrompt(input.runId, input.appendSystemPrompt);
+    persistBriefing(input.runId, composed.briefing);
+    const handle = startAgent({
+      cwd: repoPath,
+      prompt: input.prompt,
+      resumeFromSessionId: existing.sessionId,
+      appendSystemPrompt: composed.prompt,
+      // Resume always reuses the original provider; non-claude-code can't
+      // produce a sessionId today, so this guard is implicit.
+      ...(existing.provider ? { provider: existing.provider as import('@kanbots/dispatcher').AgentRunProvider } : {}),
+      ...(input.extraArgs !== undefined ? { extraArgs: input.extraArgs } : {}),
+      ...(input.env !== undefined ? { env: input.env } : {}),
+    });
+    const run = store.agentRuns.update(input.runId, {
+      status: 'running',
+      endedAt: null,
+      exitReason: null,
+      pid: handle.pid,
+      ...(input.costBudgetUsd !== undefined ? { costBudgetUsd: input.costBudgetUsd } : {}),
+    });
+    wireHandle(run, handle);
+    emitter.emit(statusChannel(run.id), run.status);
+    return run;
+  }
+
   async function start(input: StartRunInput): Promise<AgentRun> {
     const conflicting = findActiveRunForThread(input.threadId);
     if (conflicting !== null) {
@@ -637,12 +744,16 @@ export async function createSupervisor(
     }
 
     const budget = resolveBudget(input.costBudgetUsd);
+    const provider = input.provider ?? 'claude-code';
     run = store.agentRuns.update(run.id, {
       worktreePath,
       branchName: branch,
       ...(input.model !== undefined ? { model: input.model } : {}),
+      provider,
       ...(budget !== null ? { costBudgetUsd: budget } : {}),
     });
+    // Persist last-used model on the thread for the model picker default.
+    store.threads.setLastModel(input.threadId, provider, input.model ?? null);
 
     const composed = composeSystemPrompt(run.id, input.appendSystemPrompt);
     persistBriefing(run.id, composed.briefing);
@@ -651,6 +762,7 @@ export async function createSupervisor(
       prompt: input.prompt,
       appendSystemPrompt: composed.prompt,
       ...(input.model !== undefined ? { model: input.model } : {}),
+      provider,
     });
 
     run = store.agentRuns.update(run.id, {
@@ -789,6 +901,8 @@ export async function createSupervisor(
   return {
     start,
     resume,
+    startChat,
+    resumeChat,
     stop,
     getRun,
     listEvents,

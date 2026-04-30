@@ -10,12 +10,14 @@ import {
 } from 'react';
 import { api } from '../../api.js';
 import { CardPreview } from '../Card.js';
+import { ModelPicker } from '../forms/ModelPicker.js';
 import type { Issue } from '../../types.js';
 
 type Mode = 'spec' | 'dispatch' | 'queue';
 type Tag = 'feat' | 'fix' | 'chore' | 'infra' | 'docs';
 type Priority = 'p0' | 'p1' | 'p2' | 'p3';
-type Model = 'opus' | 'sonnet';
+// Legacy local type kept for downstream compat — the picker now drives
+// `selection: { provider, model }` as a free-form string pair.
 type Assignee = 'claude' | 'me';
 type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 type Template = 'bug' | 'feature' | 'refactor' | 'review' | 'spike';
@@ -112,7 +114,9 @@ export function TaskCreateModal({
   const [mode, setMode] = useState<Mode>(defaultMode);
   const [tpl, setTpl] = useState<Template>('feature');
   const [assignee, setAssignee] = useState<Assignee>('claude');
-  const [model, setModel] = useState<Model>('opus');
+  const [modelSelection, setModelSelection] =
+    useState<import('../forms/ModelPicker.js').ModelPickerValue | null>(null);
+  const model = modelSelection?.model ?? 'opus';
   const [effort, setEffort] = useState<Effort>('medium');
   const [tag, setTag] = useState<Tag>('feat');
   const [priority, setPriority] = useState<Priority>('p2');
@@ -281,7 +285,9 @@ export function TaskCreateModal({
         await api.startAgent(created.number, {
           threadId,
           prompt: kickoff,
-          model,
+          ...(modelSelection
+            ? { model: modelSelection.model, provider: modelSelection.provider }
+            : { model }),
           ...(mode === 'spec' ? { appendSystemPrompt: SPEC_SYSTEM_PROMPT } : {}),
         });
       }
@@ -471,14 +477,12 @@ export function TaskCreateModal({
                   </label>
                   <label className="kb-pill-select">
                     <span className="lbl">model</span>
-                    <select
-                      value={model}
-                      onChange={(e) => setModel(e.target.value as Model)}
+                    <ModelPicker
+                      value={modelSelection}
+                      onChange={setModelSelection}
                       className="kb-pill-select-native mono"
-                    >
-                      <option value="opus">opus</option>
-                      <option value="sonnet">sonnet</option>
-                    </select>
+                      agentRunsOnly
+                    />
                     <span className="caret">▾</span>
                   </label>
                   <label className="kb-pill-select">

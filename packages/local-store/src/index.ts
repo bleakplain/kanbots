@@ -6,11 +6,13 @@ import { AgentEventsRepo } from './repos/agent-events.js';
 import { AgentRunsRepo } from './repos/agent-runs.js';
 import { AutopilotSessionsRepo } from './repos/autopilot-sessions.js';
 import { CardsRepo } from './repos/cards.js';
+import { ChatConversationsRepo } from './repos/chat-conversations.js';
 import { FoldersRepo } from './repos/folders.js';
 import { HttpCacheRepo } from './repos/http-cache.js';
 import { LocalIssuesRepo } from './repos/local-issues.js';
 import { MessagesRepo } from './repos/messages.js';
 import { PromotionsRepo } from './repos/promotions.js';
+import { ProviderSettingsRepo, ProvidersRepo } from './repos/providers.js';
 import { SentryConfigRepo } from './repos/sentry-config.js';
 import { SentryImportsRepo } from './repos/sentry-imports.js';
 import { ThreadsRepo } from './repos/threads.js';
@@ -20,6 +22,7 @@ export interface Store {
   readonly threads: ThreadsRepo;
   readonly messages: MessagesRepo;
   readonly cards: CardsRepo;
+  readonly chatConversations: ChatConversationsRepo;
   readonly agentRuns: AgentRunsRepo;
   readonly events: AgentEventsRepo;
   readonly checks: AgentChecksRepo;
@@ -29,6 +32,8 @@ export interface Store {
   readonly workspaces: WorkspacesRepo;
   readonly folders: FoldersRepo;
   readonly autopilotSessions: AutopilotSessionsRepo;
+  readonly providers: ProvidersRepo;
+  readonly providerSettings: ProviderSettingsRepo;
   readonly sentryConfig: SentryConfigRepo;
   readonly sentryImports: SentryImportsRepo;
   readonly db: Db;
@@ -54,6 +59,7 @@ function wrap(db: Db): Store {
     threads: new ThreadsRepo(db),
     messages: new MessagesRepo(db),
     cards: new CardsRepo(db),
+    chatConversations: new ChatConversationsRepo(db),
     agentRuns: new AgentRunsRepo(db),
     events: new AgentEventsRepo(db),
     checks: new AgentChecksRepo(db),
@@ -63,6 +69,8 @@ function wrap(db: Db): Store {
     workspaces: new WorkspacesRepo(db),
     folders: new FoldersRepo(db),
     autopilotSessions: new AutopilotSessionsRepo(db),
+    providers: new ProvidersRepo(db),
+    providerSettings: new ProviderSettingsRepo(db),
     sentryConfig: new SentryConfigRepo(db),
     sentryImports: new SentryImportsRepo(db),
     db,
@@ -79,6 +87,11 @@ export type { Migration } from './migrations/types.js';
 export { CardAlreadyResolvedError } from './repos/cards.js';
 export type { CreateCardInput } from './repos/cards.js';
 export type { CreateThreadInput } from './repos/threads.js';
+export {
+  CHAT_REPO_NAME,
+  CHAT_REPO_OWNER,
+  type CreateChatConversationInput,
+} from './repos/chat-conversations.js';
 export type { CreateMessageInput } from './repos/messages.js';
 export type { CreateAgentRunInput, UpdateAgentRunPatch } from './repos/agent-runs.js';
 export type {
@@ -97,6 +110,8 @@ export {
 } from './repos/local-issues.js';
 export { LocalIssueSource, type LocalIssueSourceOptions } from './local-issue-source.js';
 
+export type { ProviderConfigPatch, ProviderSettingsPatch } from './repos/providers.js';
+export { PROVIDER_IDS } from './repos/providers.js';
 export type { SentryConfigPatch } from './repos/sentry-config.js';
 export type { UpsertSentryImportInput } from './repos/sentry-imports.js';
 
@@ -145,6 +160,8 @@ export type {
   CardId,
   CardStatus,
   CardType,
+  ChatConversation,
+  ChatConversationId,
   CheckKind,
   CheckStatus,
   Message,
@@ -153,6 +170,10 @@ export type {
   Promotion,
   PromotionId,
   PromotionKind,
+  ProviderConfig,
+  ProviderId,
+  ProviderKeyEncryption,
+  ProviderSettings,
   Role,
   SentryConfig,
   SentryImport,

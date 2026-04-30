@@ -31,7 +31,9 @@ export { parseStreamLine, makeLineSplitter, type StreamEvent } from './stream-pa
 export {
   startAgentRun,
   DEFAULT_GRACEFUL_TIMEOUT_MS,
+  UnsupportedProviderForAgentRunError,
   type AgentRunHandle,
+  type AgentRunProvider,
   type RunResult,
   type RunSummary,
   type StartAgentRunOptions,

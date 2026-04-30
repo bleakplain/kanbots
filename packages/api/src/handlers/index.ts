@@ -12,22 +12,33 @@ import * as agentRuns from './agent-runs.js';
 import * as attachments from './attachments.js';
 import * as autopilot from './autopilot.js';
 import * as cards from './cards.js';
+import * as chat from './chat.js';
 import * as composer from './composer.js';
 import * as config from './config.js';
 import * as cooldown from './cooldown.js';
 import * as cost from './cost.js';
 import * as decisions from './decisions.js';
 import * as issues from './issues.js';
+import * as providers from './providers.js';
 import * as sentry from './sentry.js';
 import type {
+  ChatToolRuntime,
   CreateHandlersOptions,
   HandlerDeps,
+  ProvidersRuntime,
   SentryRuntime,
   SubscriptionRegistry,
 } from './types.js';
 import * as workspace from './workspace.js';
 
-export type { CreateHandlersOptions, HandlerDeps, SentryRuntime, SubscriptionRegistry };
+export type {
+  ChatToolRuntime,
+  CreateHandlersOptions,
+  HandlerDeps,
+  ProvidersRuntime,
+  SentryRuntime,
+  SubscriptionRegistry,
+};
 export type {
   Config,
   DraftIssueFn,
@@ -107,6 +118,17 @@ export function createHandlers(opts: CreateHandlersOptions): Handlers {
     'sentry:sync-now': () => sentry.syncNow(deps),
     'sentry:analyze': (args) => sentry.analyze(deps, args),
     'sentry:apply-suggestion': (args) => sentry.applySuggestion(deps, args),
+    'providers:get': () => providers.getConfig(deps),
+    'providers:save': (args) => providers.save(deps, args),
+    'providers:test-connection': (args) => providers.testConnection(deps, args),
+    'providers:set-defaults': (args) => providers.setDefaults(deps, args),
+    'chat:list': () => chat.list(deps),
+    'chat:create': (args) => chat.create(deps, args),
+    'chat:get': (args) => chat.get(deps, args),
+    'chat:rename': (args) => chat.rename(deps, args),
+    'chat:delete': (args) => chat.deleteConversation(deps, args),
+    'chat:post-message': (args) => chat.postMessage(deps, args),
+    'chat:stop-run': (args) => chat.stopRun(deps, args),
   };
   return map;
 }

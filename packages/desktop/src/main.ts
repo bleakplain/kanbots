@@ -1,18 +1,25 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { basename, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, shell } from 'electron';
 import {
   createAutopilotManager,
   createHandlers,
   createSupervisor,
+  dispatchChatTool,
   reconcileIssueLabels,
+  startToolBridge,
   type AgentSupervisor,
   type AutopilotManager,
+  type ChatToolRuntime,
   type DraftIssueFn,
+  type Handlers,
   type SentryAnalyzerFn,
   type SentryRuntime,
   type SuggestFeatureFn,
+  type ToolBridge,
 } from '@kanbots/api';
 import { GitHubClient, resolveGitHubToken, type IssueSource } from '@kanbots/core';
 import { createComposer, createSentryAnalyzer, createSuggester } from '@kanbots/dispatcher';
@@ -47,6 +54,12 @@ import {
   envTokenOverride,
   safeStorageAvailable,
 } from './sentry-token.js';
+import {
+  decryptProviderKey,
+  encryptProviderKey,
+  hasClaudeCodeCredentials,
+} from './providers-key.js';
+import { migrateProviderEnvVars } from './migrate-provider-envs.js';
 import type { ActiveWorkspaceInfo, BootstrapPayload, RecentWorkspace } from './types.js';
 import type { AgentRun, AgentRunStatus } from '@kanbots/local-store';
 
@@ -67,6 +80,8 @@ interface ActiveWorkspace {
   detachOwnerCleanup: () => void;
   cooldownUnsub: () => void;
   dbWatcher: DbWatcher;
+  toolBridge: ToolBridge | null;
+  toolBridgeRuntimeDir: string | null;
 }
 
 process.on('uncaughtException', (err) => {
@@ -79,6 +94,17 @@ process.on('unhandledRejection', (reason) => {
 
 let activeWorkspace: ActiveWorkspace | null = null;
 let mainWindow: BrowserWindow | null = null;
+const chatWindows = new Set<BrowserWindow>();
+
+function findWebContentsForOwner(ownerId: number | undefined): Electron.WebContents | null {
+  if (ownerId === undefined) {
+    return mainWindow?.webContents ?? null;
+  }
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.webContents.id === ownerId) return win.webContents;
+  }
+  return mainWindow?.webContents ?? null;
+}
 
 const RECENTS_LIMIT = 20;
 
@@ -201,6 +227,12 @@ async function buildSource(config: WorkspaceConfig, store: Store): Promise<Issue
 }
 
 async function closeActiveWorkspace(): Promise<void> {
+  // Chat windows are bound to the workspace's SQLite db; close them before
+  // ripping the workspace down so the renderer stops sending IPC into
+  // handlers that are about to disappear.
+  if (chatWindows.size > 0) {
+    closeAllChatWindows();
+  }
   if (!activeWorkspace) return;
   try {
     activeWorkspace.cooldownUnsub();
@@ -237,6 +269,13 @@ async function closeActiveWorkspace(): Promise<void> {
   } catch {
     // ignore
   }
+  if (activeWorkspace.toolBridge) {
+    try {
+      await activeWorkspace.toolBridge.close();
+    } catch {
+      // ignore
+    }
+  }
   try {
     activeWorkspace.store.close();
   } catch {
@@ -260,6 +299,14 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
 
   const kdir = describeKanbotsDir(gitRoot);
   const store = openStore({ path: kdir.dbPath });
+
+  // First-run only: import legacy {ANTHROPIC,OPENAI,...}_API_KEY env vars
+  // into the providers store. Subsequent runs ignore env vars entirely.
+  try {
+    migrateProviderEnvVars(store);
+  } catch (err) {
+    console.warn('[providers] env-var migration failed:', err);
+  }
 
   // Catch external db writes (other process, direct sqlite3 edits) — the
   // notify-wrappers below only cover writes that go through our handlers.
@@ -286,6 +333,13 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
     safeStorageAvailable,
     syncNow: () => sentryPoller.runOnce(),
     restartPoller: () => sentryPoller.restart(),
+  };
+
+  const providersRuntime = {
+    encryptKey: encryptProviderKey,
+    decryptKey: decryptProviderKey,
+    safeStorageAvailable,
+    hasClaudeCodeCredentials,
   };
 
   const containmentEnv = process.env.KANBOTS_CONTAINMENT_MODE;
@@ -365,10 +419,14 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
 
   const subscriptions = createSubscriptionRegistry({
     supervisor,
-    forward: (payload) => {
-      const sender = mainWindow?.webContents;
-      if (!sender || sender.isDestroyed()) return;
-      sender.send('agent-runs:events:data', payload);
+    forward: (payload, ownerId) => {
+      // Send to the window that opened the subscription. Falls back to the
+      // main window when ownerId is missing (legacy callers) or the original
+      // window has gone away.
+      const target = findWebContentsForOwner(ownerId);
+      if (target && !target.isDestroyed()) {
+        target.send('agent-runs:events:data', payload);
+      }
       if (payload.kind === 'status') broadcastIssueChange();
     },
   });
@@ -382,6 +440,39 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
     defaultSessionCostBudgetUsd: () => budgetsState.sessionCostBudgetUsd,
     onSessionChange: () => broadcastIssueChange(),
   });
+  // The tool-bridge dispatches MCP calls into the same handlers map the
+  // IPC bridge serves. Handlers don't exist yet (they reference the bridge
+  // via chatTools), so we capture a late-bound slot the bridge consults at
+  // request time.
+  const handlersHolder: { handlers: Handlers | null } = { handlers: null };
+  let toolBridge: ToolBridge | null = null;
+  let toolBridgeRuntimeDir: string | null = null;
+  let chatTools: ChatToolRuntime | undefined;
+  try {
+    toolBridge = await startToolBridge({
+      handlers: {} as Handlers,
+      dispatch: (name, args) => {
+        const h = handlersHolder.handlers;
+        if (!h) throw new Error('handlers not yet ready');
+        return dispatchChatTool(name, args, h);
+      },
+    });
+    toolBridgeRuntimeDir = join(kdir.root, 'mcp-runtime');
+    await mkdir(toolBridgeRuntimeDir, { recursive: true });
+    const mcpServerEntry = resolveMcpServerEntry();
+    if (mcpServerEntry) {
+      chatTools = buildChatToolRuntime({
+        toolBridge,
+        runtimeDir: toolBridgeRuntimeDir,
+        mcpServerEntry,
+      });
+    }
+  } catch (err) {
+    console.error('[main] tool-bridge bootstrap failed:', err);
+    toolBridge = null;
+    chatTools = undefined;
+  }
+
   const handlers = createHandlers({
     deps: {
       source,
@@ -393,6 +484,8 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
       autopilot,
       analyzeSentryError,
       sentry: sentryRuntime,
+      providers: providersRuntime,
+      ...(chatTools ? { chatTools } : {}),
       budgets: {
         get: () => ({
           runCostBudgetUsd: budgetsState.runCostBudgetUsd,
@@ -423,6 +516,7 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
     subscriptions,
   });
   const unregisterHandlers = registerHandlers(handlers, subscriptions);
+  handlersHolder.handlers = handlers;
 
   // Tie subscriptions to the renderer that opened them. When the webContents
   // is destroyed (window closed, render process gone) we drop everything to
@@ -461,6 +555,8 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
     detachOwnerCleanup,
     cooldownUnsub,
     dbWatcher,
+    toolBridge,
+    toolBridgeRuntimeDir,
   };
 
   sentryPoller.start();
@@ -618,9 +714,32 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle('kanbots:window-close', () => {
+  ipcMain.handle('kanbots:window-close', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) {
+      win.close();
+      return;
+    }
     mainWindow?.close();
   });
+
+  ipcMain.handle(
+    'kanbots:open-chat',
+    async (
+      _event,
+      conversationId: number | null,
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        if (!activeWorkspace) {
+          return { ok: false, error: 'no active workspace' };
+        }
+        await createChatWindow(conversationId ?? null);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
 
   ipcMain.handle(
     'kanbots:set-notify-on-run-complete',
@@ -675,6 +794,114 @@ async function createWindow(): Promise<void> {
   }
 }
 
+async function createChatWindow(conversationId: number | null): Promise<BrowserWindow> {
+  const win = new BrowserWindow({
+    width: 880,
+    height: 760,
+    title: 'kanbots chat',
+    frame: false,
+    titleBarStyle: 'hidden',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  chatWindows.add(win);
+  win.on('closed', () => {
+    chatWindows.delete(win);
+    if (activeWorkspace) {
+      activeWorkspace.subscriptions.closeAllForOwner(win.webContents.id);
+    }
+  });
+
+  if (process.env.KANBOTS_OPEN_DEVTOOLS) {
+    win.webContents.openDevTools({ mode: 'detach' });
+  }
+
+  // The chat UI lives in the same renderer bundle but mounts a different
+  // root view when the URL hash starts with #/chat. Pass the optional
+  // conversation id so the window opens straight to it.
+  const hash = `#/chat${conversationId !== null ? `/${conversationId}` : ''}`;
+  const devUrl = process.env.KANBOTS_RENDERER_URL;
+  if (devUrl) {
+    await win.loadURL(`${devUrl}${hash}`);
+  } else {
+    await win.loadFile(join(__dirname, 'web', 'index.html'), { hash });
+  }
+  return win;
+}
+
+function closeAllChatWindows(): void {
+  for (const win of [...chatWindows]) {
+    try {
+      win.close();
+    } catch {
+      // ignore — closed handler will sweep
+    }
+  }
+  chatWindows.clear();
+}
+
+function resolveMcpServerEntry(): string | null {
+  // The MCP server ships from `@kanbots/mcp/server`. We resolve the entry
+  // through the standard module loader so it works in both dev (pnpm
+  // symlinks → packages/mcp/dist/server.js) and a packaged Electron app
+  // where node_modules sits beside the desktop bundle.
+  try {
+    const req = createRequire(__filename);
+    const entry = req.resolve('@kanbots/mcp/server');
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+function buildChatToolRuntime(args: {
+  toolBridge: ToolBridge;
+  runtimeDir: string;
+  mcpServerEntry: string;
+}): ChatToolRuntime {
+  const { toolBridge, runtimeDir, mcpServerEntry } = args;
+  return {
+    prepareForRun: async () => {
+      const token = toolBridge.issueToken();
+      const configPath = join(
+        runtimeDir,
+        `mcp-${randomUUID().slice(0, 8)}.json`,
+      );
+      const config = {
+        mcpServers: {
+          kanbots: {
+            command: process.execPath,
+            args: [mcpServerEntry],
+            env: {
+              KANBOTS_TOOL_BRIDGE_URL: toolBridge.baseUrl(),
+              KANBOTS_TOOL_BRIDGE_TOKEN: token,
+            },
+          },
+        },
+      };
+      await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+      return {
+        extraArgs: ['--mcp-config', configPath],
+        env: {
+          KANBOTS_TOOL_BRIDGE_URL: toolBridge.baseUrl(),
+          KANBOTS_TOOL_BRIDGE_TOKEN: token,
+        },
+        cleanup: () => {
+          toolBridge.revokeToken(token);
+          // The MCP config file is small; don't bother unlinking — it's
+          // inside .kanbots/mcp-runtime which is gitignored and gets
+          // garbage-collected on workspace close (the dir is deleted by
+          // the workspace bootstrap on next open if you wire it).
+        },
+      };
+    },
+  };
+}
+
 void app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   registerIpc();
@@ -688,6 +915,10 @@ void app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', async () => {
+  // The chat windows have their own lifecycle and may still be running;
+  // BrowserWindow.getAllWindows() is empty here only when the user has
+  // explicitly closed every window. Drop the workspace so processes don't
+  // outlive the UI.
   await closeActiveWorkspace();
   if (process.platform !== 'darwin') {
     app.quit();
@@ -695,5 +926,6 @@ app.on('window-all-closed', async () => {
 });
 
 app.on('before-quit', async () => {
+  closeAllChatWindows();
   await closeActiveWorkspace();
 });

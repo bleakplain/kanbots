@@ -10,6 +10,10 @@ import { migration as m0009 } from './0009-autopilot-sessions.js';
 import { migration as m0010 } from './0010-sentry.js';
 import { migration as m0011 } from './0011-agent-stop-escalation.js';
 import { migration as m0012 } from './0012-cost-budget.js';
+import { migration as m0013 } from './0013-providers.js';
+import { migration as m0014 } from './0014-agent-run-provider.js';
+import { migration as m0015 } from './0015-thread-last-model.js';
+import { migration as m0016 } from './0016-chat-conversations.js';
 import type { Migration } from './types.js';
 
 export const migrations: readonly Migration[] = [
@@ -25,6 +29,10 @@ export const migrations: readonly Migration[] = [
   m0010,
   m0011,
   m0012,
+  m0013,
+  m0014,
+  m0015,
+  m0016,
 ];
 
 export type { Migration };
