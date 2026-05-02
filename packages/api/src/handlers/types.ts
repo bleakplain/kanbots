@@ -60,6 +60,11 @@ export interface WorkspaceBudgetsAccessor {
   }): Promise<void> | void;
 }
 
+export interface WorkspaceHouseRulesAccessor {
+  get(): { houseRules: string | null };
+  set(input: { houseRules: string | null }): Promise<void> | void;
+}
+
 export interface HandlerDeps {
   source: IssueSource;
   store: Store;
@@ -72,6 +77,7 @@ export interface HandlerDeps {
   sentry: SentryRuntime;
   providers: ProvidersRuntime;
   budgets?: WorkspaceBudgetsAccessor;
+  houseRules?: WorkspaceHouseRulesAccessor;
   revealPath?: (path: string) => Promise<void>;
   chatTools?: ChatToolRuntime;
   /**

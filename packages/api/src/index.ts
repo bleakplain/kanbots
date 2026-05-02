@@ -131,4 +131,5 @@ export type {
   Workspace,
   WorkspaceBudgets,
   WorkspaceFolderPayload,
+  WorkspaceHouseRules,
 } from './bridge.js';
