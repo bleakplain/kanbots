@@ -103,12 +103,6 @@ export function makeHandlerTestKit(
       analyzeSentryError,
       sentry,
       providers: {
-        encryptKey: (plaintext: string) => ({
-          buffer: Buffer.from(plaintext, 'utf8'),
-          encryption: 'plain' as const,
-        }),
-        decryptKey: (buffer: Buffer | null) =>
-          buffer ? buffer.toString('utf8') : null,
         safeStorageAvailable: () => false,
         hasClaudeCodeCredentials: () => false,
       },

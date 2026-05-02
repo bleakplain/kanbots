@@ -13,7 +13,7 @@ import { api } from '../api.js';
 import { ArchiveModal } from '../components/modals/ArchiveModal.js';
 import { AutopilotLaunchModal } from '../components/modals/AutopilotLaunchModal.js';
 import { CardPreview } from '../components/Card.js';
-import { Column } from '../components/Column.js';
+import { Column, type SuggestActivity } from '../components/Column.js';
 import { PersonaPickerModal } from '../components/modals/PersonaPickerModal.js';
 import { ProvidersSettingsModal } from '../components/modals/ProvidersSettingsModal.js';
 import { SentrySettingsModal } from '../components/modals/SentrySettingsModal.js';
@@ -24,7 +24,7 @@ import { useIssues, dispatchIssuesRefetch } from '../hooks/useIssues.js';
 import { useSelection } from '../hooks/useSelection.js';
 import { COLUMNS, withStatus } from '../labels.js';
 import type { Persona } from '../personas.js';
-import type { Issue, StatusKey } from '../types.js';
+import type { Issue, ProviderId, StatusKey } from '../types.js';
 
 const STATUS_KEYS: readonly StatusKey[] = ['backlog', 'todo', 'inProgress', 'review', 'done'];
 
@@ -159,6 +159,8 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
   const [activeNumber, setActiveNumber] = useState<number | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+  const [suggestActivity, setSuggestActivity] = useState<SuggestActivity[]>([]);
+  const [suggestStartedAt, setSuggestStartedAt] = useState<string | null>(null);
   const [personaPickerOpen, setPersonaPickerOpen] = useState(false);
   const [autopilotLaunchOpen, setAutopilotLaunchOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -174,6 +176,30 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
     [list],
   );
   const liveByRun = useBoardAgentStreams(activeRunIds);
+
+  useEffect(() => {
+    if (!suggesting) return;
+    const bridge = typeof window !== 'undefined' ? window.kanbots : undefined;
+    if (!bridge) return;
+    const unsub = bridge.subscribe('composer:suggest:event', (payload) => {
+      const ev = payload as Partial<SuggestActivity> | null;
+      if (!ev || typeof ev !== 'object') return;
+      if (ev.kind === 'tool' && typeof ev.name === 'string') {
+        const tool: SuggestActivity = {
+          kind: 'tool',
+          name: ev.name,
+          summary: typeof ev.summary === 'string' ? ev.summary : '',
+        };
+        setSuggestActivity((prev) => [...prev, tool].slice(-10));
+      } else if (ev.kind === 'thought' && typeof ev.text === 'string') {
+        const thought: SuggestActivity = { kind: 'thought', text: ev.text };
+        setSuggestActivity((prev) => [...prev, thought].slice(-10));
+      }
+    });
+    return () => {
+      unsub();
+    };
+  }, [suggesting]);
 
   if (loading && issues.length === 0) {
     return (
@@ -261,13 +287,15 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
     setPersonaPickerOpen(true);
   }
 
-  async function runSuggestionWith(persona: Persona): Promise<void> {
+  async function runSuggestionWith(persona: Persona, provider?: ProviderId): Promise<void> {
     setPersonaPickerOpen(false);
     if (suggesting) return;
+    setSuggestActivity([]);
+    setSuggestStartedAt(new Date().toISOString());
     setSuggesting(true);
     setMoveError(null);
     try {
-      const drafted = await api.suggestFeature(persona.prompt);
+      const drafted = await api.suggestFeature(persona.prompt, provider);
       await api.createIssue({
         title: drafted.title,
         body: drafted.body,
@@ -279,6 +307,7 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
       setMoveError(`Couldn't suggest a feature: ${message}`);
     } finally {
       setSuggesting(false);
+      setSuggestStartedAt(null);
     }
   }
 
@@ -459,7 +488,12 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
               onOpenDetail?.(n);
             }}
             {...(col.key === 'backlog'
-              ? { onSuggest: openPersonaPicker, suggesting }
+              ? {
+                  onSuggest: openPersonaPicker,
+                  suggesting,
+                  suggestingActivity: suggestActivity,
+                  suggestingStartedAt: suggestStartedAt,
+                }
               : {})}
           />
         ))}
@@ -470,7 +504,7 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
       {personaPickerOpen ? (
         <PersonaPickerModal
           onClose={() => setPersonaPickerOpen(false)}
-          onPick={(persona) => void runSuggestionWith(persona)}
+          onPick={(persona, provider) => void runSuggestionWith(persona, provider)}
         />
       ) : null}
       {autopilotLaunchOpen ? (

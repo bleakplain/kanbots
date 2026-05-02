@@ -25,6 +25,13 @@ const api: KanbotsBridge = {
       { ok: true } | { ok: false; error: string }
     >,
   claudeLoginCancel: () => ipcRenderer.invoke('kanbots:claude-login-cancel') as Promise<void>,
+  codexAuthStatus: () =>
+    ipcRenderer.invoke('kanbots:codex-auth-status') as Promise<{ authed: boolean }>,
+  codexLoginStart: () =>
+    ipcRenderer.invoke('kanbots:codex-login-start') as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
+  codexLoginCancel: () => ipcRenderer.invoke('kanbots:codex-login-cancel') as Promise<void>,
   setNotifyOnRunComplete: (enabled: boolean) =>
     ipcRenderer.invoke('kanbots:set-notify-on-run-complete', enabled) as Promise<
       { ok: true } | { ok: false; error: string }

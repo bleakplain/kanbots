@@ -69,6 +69,7 @@ export interface DispatchIssueResult {
 export interface DispatchIssueInput {
   fromStatus: StatusKey | null;
   model?: string;
+  provider?: ProviderId;
 }
 
 interface BridgeError extends Error {
@@ -124,6 +125,7 @@ function buildPostMessageArgs(
   const args: ChannelArgs<'issues:post-message'> = { number: n, body };
   if (opts.dispatch !== undefined) args.dispatch = opts.dispatch;
   if (opts.model !== undefined) args.model = opts.model;
+  if (opts.provider !== undefined) args.provider = opts.provider;
   if (opts.appendSystemPrompt !== undefined) {
     args.appendSystemPrompt = opts.appendSystemPrompt;
   }
@@ -139,6 +141,7 @@ function buildDispatchArgs(
     fromStatus: input.fromStatus,
   };
   if (input.model !== undefined) args.model = input.model;
+  if (input.provider !== undefined) args.provider = input.provider;
   return args;
 }
 
@@ -160,8 +163,14 @@ export const api = {
   createIssue: (input: CreateIssueInput): Promise<Issue> => invoke('issues:create', input),
   draftIssue: (description: string): Promise<DraftedIssue> =>
     invoke('composer:draft', { description }),
-  suggestFeature: (personaPrompt: string): Promise<DraftedIssue> =>
-    invoke('composer:suggest', { personaPrompt }),
+  suggestFeature: (
+    personaPrompt: string,
+    provider?: ProviderId,
+  ): Promise<DraftedIssue> => {
+    const args: ChannelArgs<'composer:suggest'> = { personaPrompt };
+    if (provider !== undefined) args.provider = provider;
+    return invoke('composer:suggest', args);
+  },
   startAgent: (
     issueNumber: number,
     input: {
@@ -169,6 +178,7 @@ export const api = {
       prompt: string;
       appendSystemPrompt?: string;
       model?: string;
+      provider?: ProviderId;
     },
   ): Promise<AgentRun> => {
     const args: ChannelArgs<'issues:start-agent'> = {
@@ -180,6 +190,7 @@ export const api = {
       args.appendSystemPrompt = input.appendSystemPrompt;
     }
     if (input.model !== undefined) args.model = input.model;
+    if (input.provider !== undefined) args.provider = input.provider;
     return invoke('issues:start-agent', args);
   },
   dispatchIssue: (

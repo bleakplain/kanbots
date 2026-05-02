@@ -41,6 +41,11 @@ import {
   isClaudeAuthenticated,
   startClaudeLogin,
 } from './claude-auth.js';
+import {
+  cancelCodexLogin,
+  isCodexAuthenticated,
+  startCodexLogin,
+} from './codex-auth.js';
 import { watchDbFile, type DbWatcher } from './db-watcher.js';
 import {
   createSubscriptionRegistry,
@@ -54,12 +59,7 @@ import {
   envTokenOverride,
   safeStorageAvailable,
 } from './sentry-token.js';
-import {
-  decryptProviderKey,
-  encryptProviderKey,
-  hasClaudeCodeCredentials,
-} from './providers-key.js';
-import { migrateProviderEnvVars } from './migrate-provider-envs.js';
+import { hasClaudeCodeCredentials } from './providers-key.js';
 import type { ActiveWorkspaceInfo, BootstrapPayload, RecentWorkspace } from './types.js';
 import type { AgentRun, AgentRunStatus } from '@kanbots/local-store';
 
@@ -300,14 +300,6 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
   const kdir = describeKanbotsDir(gitRoot);
   const store = openStore({ path: kdir.dbPath });
 
-  // First-run only: import legacy {ANTHROPIC,OPENAI,...}_API_KEY env vars
-  // into the providers store. Subsequent runs ignore env vars entirely.
-  try {
-    migrateProviderEnvVars(store);
-  } catch (err) {
-    console.warn('[providers] env-var migration failed:', err);
-  }
-
   // Catch external db writes (other process, direct sqlite3 edits) — the
   // notify-wrappers below only cover writes that go through our handlers.
   const dbWatcher = watchDbFile(kdir.dbPath, broadcastIssueChange);
@@ -336,8 +328,6 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
   };
 
   const providersRuntime = {
-    encryptKey: encryptProviderKey,
-    decryptKey: decryptProviderKey,
     safeStorageAvailable,
     hasClaudeCodeCredentials,
   };
@@ -512,6 +502,11 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
         const error = await shell.openPath(path);
         if (error) throw new Error(error);
       },
+      onSuggestEvent: (event) => {
+        const sender = mainWindow?.webContents;
+        if (!sender || sender.isDestroyed()) return;
+        sender.send('composer:suggest:event', event);
+      },
     },
     subscriptions,
   });
@@ -667,6 +662,21 @@ function registerIpc(): void {
 
   ipcMain.handle('kanbots:claude-login-cancel', async (): Promise<void> => {
     cancelClaudeLogin();
+  });
+
+  ipcMain.handle('kanbots:codex-auth-status', async (): Promise<{ authed: boolean }> => {
+    return { authed: await isCodexAuthenticated() };
+  });
+
+  ipcMain.handle(
+    'kanbots:codex-login-start',
+    async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+      return startCodexLogin();
+    },
+  );
+
+  ipcMain.handle('kanbots:codex-login-cancel', async (): Promise<void> => {
+    cancelCodexLogin();
   });
 
   ipcMain.handle('kanbots:pick-folder', async (): Promise<string | null> => {
@@ -865,31 +875,32 @@ function buildChatToolRuntime(args: {
 }): ChatToolRuntime {
   const { toolBridge, runtimeDir, mcpServerEntry } = args;
   return {
-    prepareForRun: async () => {
+    prepareForRun: async ({ provider }) => {
       const token = toolBridge.issueToken();
-      const configPath = join(
-        runtimeDir,
-        `mcp-${randomUUID().slice(0, 8)}.json`,
-      );
-      const config = {
-        mcpServers: {
-          kanbots: {
-            command: process.execPath,
-            args: [mcpServerEntry],
-            env: {
-              KANBOTS_TOOL_BRIDGE_URL: toolBridge.baseUrl(),
-              KANBOTS_TOOL_BRIDGE_TOKEN: token,
-            },
-          },
-        },
+      const env = {
+        KANBOTS_TOOL_BRIDGE_URL: toolBridge.baseUrl(),
+        KANBOTS_TOOL_BRIDGE_TOKEN: token,
       };
-      await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+      const mcpServer = {
+        command: process.execPath,
+        args: [mcpServerEntry],
+        env,
+      };
+      let extraArgs: string[];
+      if (provider === 'codex-cli') {
+        extraArgs = buildCodexMcpArgs('kanbots', mcpServer);
+      } else {
+        const configPath = join(
+          runtimeDir,
+          `mcp-${randomUUID().slice(0, 8)}.json`,
+        );
+        const config = { mcpServers: { kanbots: mcpServer } };
+        await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+        extraArgs = ['--mcp-config', configPath];
+      }
       return {
-        extraArgs: ['--mcp-config', configPath],
-        env: {
-          KANBOTS_TOOL_BRIDGE_URL: toolBridge.baseUrl(),
-          KANBOTS_TOOL_BRIDGE_TOKEN: token,
-        },
+        extraArgs,
+        env,
         cleanup: () => {
           toolBridge.revokeToken(token);
           // The MCP config file is small; don't bother unlinking — it's
@@ -900,6 +911,27 @@ function buildChatToolRuntime(args: {
       };
     },
   };
+}
+
+// codex's `-c key=value` parses the value as TOML, falling back to a raw
+// literal if TOML parsing fails. We always emit quoted basic strings + TOML
+// arrays so the parser doesn't have to guess.
+function buildCodexMcpArgs(
+  serverName: string,
+  spec: { command: string; args: string[]; env: Record<string, string> },
+): string[] {
+  const out: string[] = [];
+  const base = `mcp_servers.${serverName}`;
+  out.push('-c', `${base}.command=${tomlString(spec.command)}`);
+  out.push('-c', `${base}.args=[${spec.args.map(tomlString).join(', ')}]`);
+  for (const [key, value] of Object.entries(spec.env)) {
+    out.push('-c', `${base}.env.${key}=${tomlString(value)}`);
+  }
+  return out;
+}
+
+function tomlString(s: string): string {
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 void app.whenReady().then(async () => {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type MouseEvent } from 'react';
 import { api } from '../../api.js';
+import { getBridge } from '../../desktop-bridge.js';
 import type {
   ProviderConfigPayload,
   ProviderId,
@@ -15,9 +16,13 @@ interface ProviderSpec {
   id: ProviderId;
   name: string;
   description: string;
-  /** True if credentials come from OAuth (Claude Code), not an API key. */
-  oauth?: boolean;
-  signupUrl?: string;
+  /** Auth is handled outside the app — Claude Code OAuth or `codex login`. */
+  externalAuth: true;
+  signupUrl: string;
+  /** Label for the in-app sign-in button. */
+  signInLabel: string;
+  /** Fallback hint shown alongside the sign-in button. */
+  authHint: string;
 }
 
 const SPECS: ProviderSpec[] = [
@@ -25,38 +30,21 @@ const SPECS: ProviderSpec[] = [
     id: 'claude-code',
     name: 'Claude Code subscription',
     description: 'Use your Claude Code account session. Best for agentic runs.',
-    oauth: true,
+    externalAuth: true,
     signupUrl: 'https://claude.com/claude-code',
+    signInLabel: 'Sign in with Claude Code',
+    authHint: 'Opens claude.com in your browser to complete OAuth.',
   },
   {
-    id: 'anthropic',
-    name: 'Anthropic API',
-    description: 'Direct Messages API. Use a key from console.anthropic.com.',
-    signupUrl: 'https://console.anthropic.com/',
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI (ChatGPT)',
-    description: 'Use a key from platform.openai.com.',
-    signupUrl: 'https://platform.openai.com/api-keys',
-  },
-  {
-    id: 'google',
-    name: 'Google Gemini',
-    description: 'Use a key from aistudio.google.com.',
-    signupUrl: 'https://aistudio.google.com/app/apikey',
-  },
-  {
-    id: 'deepseek',
-    name: 'DeepSeek',
-    description: 'Use a key from platform.deepseek.com.',
-    signupUrl: 'https://platform.deepseek.com/api_keys',
-  },
-  {
-    id: 'xai',
-    name: 'xAI (Grok)',
-    description: 'Use a key from console.x.ai.',
-    signupUrl: 'https://console.x.ai/',
+    id: 'codex-cli',
+    name: 'Codex CLI (OpenAI)',
+    description:
+      'Run agent tasks through OpenAI’s codex CLI. Requires `codex` on PATH. Issue drafting and Sentry analysis still run on Claude.',
+    externalAuth: true,
+    signupUrl: 'https://github.com/openai/codex',
+    signInLabel: 'Sign in with codex',
+    authHint:
+      'Spawns `codex login` and opens auth.openai.com in your browser. You can also set OPENAI_API_KEY in your environment.',
   },
 ];
 
@@ -67,27 +55,9 @@ const MODELS_BY_PROVIDER: Record<ProviderId, Array<{ id: string; label: string }
     { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
     { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
   ],
-  anthropic: [
-    { id: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
-    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
-  ],
-  openai: [
+  'codex-cli': [
     { id: 'gpt-5', label: 'GPT-5' },
     { id: 'gpt-5-mini', label: 'GPT-5 mini' },
-    { id: 'gpt-4.1', label: 'GPT-4.1' },
-  ],
-  google: [
-    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  ],
-  deepseek: [
-    { id: 'deepseek-chat', label: 'DeepSeek Chat' },
-    { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner' },
-  ],
-  xai: [
-    { id: 'grok-4', label: 'Grok 4' },
-    { id: 'grok-4-mini', label: 'Grok 4 mini' },
   ],
 };
 
@@ -161,16 +131,10 @@ export function ProvidersSettingsModal({ onClose }: ProvidersSettingsModalProps)
 
           {payload ? (
             <>
-              {!payload.safeStorageAvailable ? (
-                <div className="kb-sentry-warn" role="status">
-                  No system keyring detected — keys will be stored unencrypted on disk.
-                </div>
-              ) : null}
-
               {!payload.anyConfigured ? (
                 <div className="kb-sentry-warn" role="status">
-                  <strong>No providers configured.</strong> Enable at least one provider below
-                  to dispatch agent runs.
+                  <strong>No providers configured.</strong> Sign in to Claude Code or run
+                  {' '}<code>codex login</code> to enable agent runs.
                 </div>
               ) : null}
 
@@ -249,6 +213,11 @@ type TestState =
   | { kind: 'ok'; models?: string[] }
   | { kind: 'error'; message: string };
 
+type LoginState =
+  | { kind: 'idle' }
+  | { kind: 'running' }
+  | { kind: 'error'; message: string };
+
 interface SectionProps {
   spec: ProviderSpec;
   config: ProviderConfigPayload;
@@ -257,10 +226,10 @@ interface SectionProps {
 
 function ProviderSection({ spec, config, onChanged }: SectionProps) {
   const [enabled, setEnabled] = useState(config.enabled);
-  const [keyDraft, setKeyDraft] = useState('');
   const [defaultModel, setDefaultModel] = useState(config.defaultModel ?? '');
   const [saving, setSaving] = useState(false);
   const [testState, setTestState] = useState<TestState>({ kind: 'idle' });
+  const [loginState, setLoginState] = useState<LoginState>({ kind: 'idle' });
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -270,42 +239,21 @@ function ProviderSection({ spec, config, onChanged }: SectionProps) {
 
   const dirty = useMemo(() => {
     if (enabled !== config.enabled) return true;
-    if (keyDraft.length > 0) return true;
     if ((defaultModel || null) !== (config.defaultModel ?? null)) return true;
     return false;
-  }, [enabled, keyDraft, defaultModel, config]);
+  }, [enabled, defaultModel, config]);
 
   async function handleSave(): Promise<void> {
     if (saving) return;
     setSaving(true);
     setLocalError(null);
     try {
-      const input: import('../../types.js').ProviderSaveInput = {
+      const next = await api.saveProvider({
         id: spec.id,
         enabled,
         defaultModel: defaultModel.trim() || null,
-      };
-      if (!spec.oauth && keyDraft.length > 0) {
-        input.apiKey = keyDraft;
-      }
-      const next = await api.saveProvider(input);
+      });
       onChanged(next);
-      setKeyDraft('');
-    } catch (err) {
-      setLocalError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleClearKey(): Promise<void> {
-    if (saving) return;
-    setSaving(true);
-    setLocalError(null);
-    try {
-      const next = await api.saveProvider({ id: spec.id, apiKey: null });
-      onChanged(next);
-      setKeyDraft('');
     } catch (err) {
       setLocalError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -316,9 +264,7 @@ function ProviderSection({ spec, config, onChanged }: SectionProps) {
   async function handleTest(): Promise<void> {
     setTestState({ kind: 'running' });
     try {
-      const args: { id: ProviderId; apiKey?: string } = { id: spec.id };
-      if (!spec.oauth && keyDraft.length > 0) args.apiKey = keyDraft;
-      const result: ProviderTestConnectionResult = await api.testProviderConnection(args);
+      const result: ProviderTestConnectionResult = await api.testProviderConnection({ id: spec.id });
       if (result.ok) {
         const out: TestState = { kind: 'ok' };
         if (result.models !== undefined) out.models = result.models;
@@ -331,7 +277,51 @@ function ProviderSection({ spec, config, onChanged }: SectionProps) {
     }
   }
 
+  async function handleSignIn(): Promise<void> {
+    const bridge = getBridge();
+    if (!bridge) {
+      setLoginState({
+        kind: 'error',
+        message: 'Desktop bridge unavailable — open the desktop app to sign in.',
+      });
+      return;
+    }
+    setLoginState({ kind: 'running' });
+    try {
+      const result =
+        spec.id === 'claude-code'
+          ? await bridge.claudeLoginStart()
+          : await bridge.codexLoginStart();
+      if (!result.ok) {
+        setLoginState({ kind: 'error', message: result.error });
+        return;
+      }
+      // Refresh the providers payload so `hasKey` flips to true and the
+      // section swaps to the "configured" state.
+      const next = await api.getProviders();
+      onChanged(next);
+      setLoginState({ kind: 'idle' });
+    } catch (err) {
+      setLoginState({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  function handleCancelSignIn(): void {
+    const bridge = getBridge();
+    if (!bridge) return;
+    if (spec.id === 'claude-code') {
+      void bridge.claudeLoginCancel();
+    } else {
+      void bridge.codexLoginCancel();
+    }
+  }
+
   const models = MODELS_BY_PROVIDER[spec.id] ?? [];
+  const signedInLabel =
+    spec.id === 'claude-code' ? '✓ Signed in to Claude Code.' : '✓ codex credentials detected.';
 
   return (
     <section className="kb-provider-section">
@@ -350,41 +340,39 @@ function ProviderSection({ spec, config, onChanged }: SectionProps) {
         <span>Enabled</span>
       </label>
 
-      {spec.oauth ? (
-        <div className="kb-sentry-row">
-          {config.hasKey ? (
-            <span>✓ Signed in to Claude Code.</span>
-          ) : (
-            <span>
-              Sign in via the desktop app (the kanban gate launches the OAuth flow).{' '}
-              <a href={spec.signupUrl} target="_blank" rel="noopener noreferrer">
-                Learn more
-              </a>
-            </span>
-          )}
-        </div>
-      ) : (
-        <>
-          <label className="kb-sentry-row">
-            <span className="kb-sentry-label">API key</span>
-            <input
-              type="password"
-              value={keyDraft}
-              placeholder={config.hasKey ? '•••••• (leave blank to keep)' : 'Paste API key'}
-              autoComplete="off"
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setKeyDraft(e.target.value)}
-            />
-          </label>
-          {spec.signupUrl ? (
-            <div className="kb-sentry-hint">
-              Get a key:{' '}
-              <a href={spec.signupUrl} target="_blank" rel="noopener noreferrer">
-                {spec.signupUrl}
-              </a>
-            </div>
+      <div className="kb-sentry-row">
+        {config.hasKey ? (
+          <span>{signedInLabel}</span>
+        ) : (
+          <span>
+            {spec.authHint}{' '}
+            <a href={spec.signupUrl} target="_blank" rel="noopener noreferrer">
+              Learn more
+            </a>
+          </span>
+        )}
+      </div>
+
+      {!config.hasKey ? (
+        <div className="kb-provider-actions">
+          <button
+            type="button"
+            className="kb-btn primary"
+            onClick={() => void handleSignIn()}
+            disabled={loginState.kind === 'running'}
+          >
+            {loginState.kind === 'running' ? 'Waiting for browser…' : spec.signInLabel}
+          </button>
+          {loginState.kind === 'running' ? (
+            <button type="button" className="kb-btn ghost" onClick={handleCancelSignIn}>
+              Cancel
+            </button>
           ) : null}
-        </>
-      )}
+        </div>
+      ) : null}
+      {loginState.kind === 'error' ? (
+        <div className="kb-sentry-error">{loginState.message}</div>
+      ) : null}
 
       <label className="kb-sentry-row">
         <span className="kb-sentry-label">Default model</span>
@@ -418,16 +406,6 @@ function ProviderSection({ spec, config, onChanged }: SectionProps) {
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
-        {!spec.oauth && config.hasKey ? (
-          <button
-            type="button"
-            className="kb-btn ghost"
-            disabled={saving}
-            onClick={() => void handleClearKey()}
-          >
-            Clear key
-          </button>
-        ) : null}
       </div>
 
       {testState.kind === 'ok' ? (

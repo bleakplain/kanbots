@@ -1,20 +1,16 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { claudeCodeAdapter } from './adapters/claude-code.js';
+import { codexCliAdapter } from './adapters/codex-cli.js';
 import type { AgentCliAdapter } from './adapters/types.js';
 import type { SpawnFn } from './composer.js';
 import { makeLineSplitter, type StreamEvent } from './stream-parser.js';
 
-export type AgentRunProvider =
-  | 'claude-code'
-  | 'anthropic'
-  | 'openai'
-  | 'google'
-  | 'deepseek'
-  | 'xai';
+export type AgentRunProvider = 'claude-code' | 'codex-cli';
 
 const ADAPTERS: Partial<Record<AgentRunProvider, AgentCliAdapter>> = {
   'claude-code': claudeCodeAdapter,
+  'codex-cli': codexCliAdapter,
 };
 
 export interface StartAgentRunOptions {
@@ -115,6 +111,17 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
     ...(opts.extraArgs !== undefined ? { extraArgs: opts.extraArgs } : {}),
   });
 
+  const composedPrompt = adapter.composePrompt
+    ? adapter.composePrompt({
+        ...(opts.appendSystemPrompt !== undefined ? { systemPrompt: opts.appendSystemPrompt } : {}),
+        prompt: opts.prompt,
+      })
+    : opts.prompt;
+
+  if (adapter.promptDelivery === 'argv') {
+    args.push(composedPrompt);
+  }
+
   // On POSIX, become a process-group leader so we can signal the entire
   // tree of subprocesses claude spawns (Bash tool calls, pnpm install,
   // hung test runs, etc.) when stop() is called. On Windows the process
@@ -168,14 +175,16 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
   switch (adapter.promptDelivery) {
     case 'stdin':
       if (child.stdin) {
-        child.stdin.write(opts.prompt);
+        child.stdin.write(composedPrompt);
         child.stdin.end();
       }
       break;
     case 'argv':
-      throw new Error(
-        `promptDelivery 'argv' is not implemented yet (provider: ${provider})`,
-      );
+      // Prompt is already on argv; close stdin so the CLI doesn't block
+      // waiting for it. (codex prints "Reading additional input from
+      // stdin..." otherwise, even when a positional prompt is provided.)
+      child.stdin?.end();
+      break;
   }
 
   function clearEscalation(): void {

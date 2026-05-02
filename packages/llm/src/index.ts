@@ -7,15 +7,8 @@ export {
   recommendedModel,
 } from './catalogue.js';
 
-export { anthropicAdapter } from './adapters/anthropic.js';
 export { claudeCodeAdapter } from './adapters/claude-code.js';
-export { googleAdapter } from './adapters/google.js';
-export {
-  buildOpenAICompatibleAdapter,
-  deepseekAdapter,
-  openaiAdapter,
-  xaiAdapter,
-} from './adapters/openai-compatible.js';
+export { codexCliAdapter } from './adapters/codex-cli.js';
 
 export { chat, getAdapter, listAdapters, validateProvider } from './manager.js';
 

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { validateProvider, type ProviderCredentials } from '@kanbots/llm';
 import type { ProviderId } from '@kanbots/local-store';
 import { z } from 'zod';
@@ -10,14 +11,7 @@ import type {
 import { badRequest, parseArgs } from './errors.js';
 import type { HandlerDeps } from './types.js';
 
-const PROVIDER_ID_SCHEMA = z.enum([
-  'claude-code',
-  'anthropic',
-  'openai',
-  'google',
-  'deepseek',
-  'xai',
-]);
+const PROVIDER_ID_SCHEMA = z.enum(['claude-code', 'codex-cli']);
 
 const saveSchema = z
   .object({
@@ -53,24 +47,22 @@ export async function save(
   const parsed = parseArgs(saveSchema, args);
   const id = parsed.id as ProviderId;
 
-  if (id === 'claude-code' && parsed.apiKey !== undefined) {
-    throw badRequest("claude-code uses OAuth, not API keys. Sign in via the desktop app instead.");
+  // Both supported providers manage their own credentials externally:
+  // claude-code via OAuth, codex-cli via `codex login` / OPENAI_API_KEY.
+  // The app never stores API keys.
+  if (parsed.apiKey !== undefined && parsed.apiKey !== null && parsed.apiKey !== '') {
+    throw badRequest(
+      `${id} does not accept an API key here. ${
+        id === 'claude-code'
+          ? 'Sign in via the desktop app.'
+          : 'Use `codex login` or set OPENAI_API_KEY in your environment.'
+      }`,
+    );
   }
 
   const patch: Parameters<typeof deps.store.providers.update>[1] = {};
   if (parsed.enabled !== undefined) patch.enabled = parsed.enabled;
   if (parsed.defaultModel !== undefined) patch.defaultModel = parsed.defaultModel;
-  if (parsed.apiKey !== undefined) {
-    if (parsed.apiKey === null || parsed.apiKey === '') {
-      patch.keyEncrypted = null;
-      patch.keyEncryption = 'plain';
-    } else {
-      const { buffer, encryption } = deps.providers.encryptKey(parsed.apiKey);
-      patch.keyEncrypted = buffer;
-      patch.keyEncryption = encryption;
-      patch.lastError = null;
-    }
-  }
   deps.store.providers.update(id, patch);
   return readPayload(deps);
 }
@@ -89,20 +81,11 @@ export async function testConnection(
       credentialsPath: claudeCodeCredentialsPath(),
     };
   } else {
-    const apiKey =
-      parsed.apiKey ??
-      (() => {
-        const config = deps.store.providers.get(id);
-        return deps.providers.decryptKey(config.keyEncrypted, config.keyEncryption);
-      })();
-    if (!apiKey) {
-      return { ok: false, error: 'No API key configured for this provider.' };
-    }
-    creds = { kind: 'api-key', apiKey };
+    // codex-cli: validate is a no-op; the adapter doesn't read creds.
+    creds = { kind: 'api-key', apiKey: '' };
   }
 
   const result = await validateProvider(id, creds);
-  // Persist validation outcome so the UI can surface lastError without re-testing.
   deps.store.providers.update(id, {
     lastValidatedAt: new Date().toISOString(),
     lastError: result.ok ? null : (result.error ?? 'unknown error'),
@@ -138,7 +121,7 @@ function readPayload(deps: HandlerDeps): ProvidersPayload {
     hasKey:
       row.id === 'claude-code'
         ? deps.providers.hasClaudeCodeCredentials()
-        : row.keyEncrypted !== null && row.keyEncrypted.length > 0,
+        : hasCodexCliCredentials(),
     defaultModel: row.defaultModel,
     keyEncryption: row.keyEncryption,
     lastValidatedAt: row.lastValidatedAt,
@@ -156,6 +139,15 @@ function readPayload(deps: HandlerDeps): ProvidersPayload {
     safeStorageAvailable: deps.providers.safeStorageAvailable(),
     anyConfigured,
   };
+}
+
+function hasCodexCliCredentials(): boolean {
+  // codex finds its own auth — `codex login` writes ~/.codex/auth.json,
+  // or OPENAI_API_KEY can be set in the ambient environment.
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+  if (home && existsSync(`${home}/.codex/auth.json`)) return true;
+  if (process.env.OPENAI_API_KEY) return true;
+  return false;
 }
 
 function claudeCodeCredentialsPath(): string {

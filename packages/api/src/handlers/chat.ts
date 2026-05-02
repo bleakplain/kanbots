@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AgentRunProvider } from '@kanbots/dispatcher';
 import type {
   AgentEvent,
   AgentRun,
@@ -9,6 +10,35 @@ import type {
 import type { ChatPayload, ChatPostMessageResult } from '../bridge.js';
 import { alreadyActive, parseArgs } from './errors.js';
 import type { HandlerDeps } from './types.js';
+
+const KNOWN_PROVIDERS: ReadonlySet<AgentRunProvider> = new Set([
+  'claude-code',
+  'codex-cli',
+]);
+
+function resolveChatProvider(
+  deps: HandlerDeps,
+  explicit: AgentRunProvider | undefined,
+  resumeFrom: AgentRun | null,
+): AgentRunProvider {
+  if (resumeFrom !== null) {
+    const persisted = resumeFrom.provider;
+    if (persisted && KNOWN_PROVIDERS.has(persisted as AgentRunProvider)) {
+      return persisted as AgentRunProvider;
+    }
+    return 'claude-code';
+  }
+  if (explicit) return explicit;
+  try {
+    const def = deps.store.providerSettings.get().defaultProvider;
+    if (def && KNOWN_PROVIDERS.has(def as AgentRunProvider)) {
+      return def as AgentRunProvider;
+    }
+  } catch {
+    // settings row may be missing on first run — fall through
+  }
+  return 'claude-code';
+}
 
 const createSchema = z
   .object({
@@ -35,14 +65,7 @@ const deleteSchema = z
   })
   .strict();
 
-const PROVIDER_ENUM = z.enum([
-  'claude-code',
-  'anthropic',
-  'openai',
-  'google',
-  'deepseek',
-  'xai',
-]);
+const PROVIDER_ENUM = z.enum(['claude-code', 'codex-cli']);
 
 const postMessageSchema = z
   .object({
@@ -164,13 +187,7 @@ export async function postMessage(
     body: string;
     dispatch?: boolean;
     model?: string;
-    provider?:
-      | 'claude-code'
-      | 'anthropic'
-      | 'openai'
-      | 'google'
-      | 'deepseek'
-      | 'xai';
+    provider?: 'claude-code' | 'codex-cli';
     appendSystemPrompt?: string;
   },
 ): Promise<ChatPostMessageResult> {
@@ -206,9 +223,19 @@ export async function postMessage(
   if (dispatch) {
     const active = deps.store.agentRuns.findActiveForThread(conversation.threadId);
     const latest = active ?? deps.store.agentRuns.findLatestForThread(conversation.threadId);
+    // If the user explicitly picked a provider that doesn't match the latest
+    // run's provider, treat it as a provider switch and start a fresh run
+    // instead of silently resuming the old session under the wrong CLI.
+    const switchingProvider =
+      active === null &&
+      parsed.provider !== undefined &&
+      latest !== null &&
+      latest.provider !== null &&
+      latest.provider !== parsed.provider;
     const willResume =
-      (active !== null && active.status === 'awaiting_input') ||
-      (active === null && latest !== null && latest.sessionId !== null);
+      !switchingProvider &&
+      ((active !== null && active.status === 'awaiting_input') ||
+        (active === null && latest !== null && latest.sessionId !== null));
     const willStart = active === null && !willResume;
     if (active !== null && !willResume) {
       throw alreadyActive(`agent run #${active.id} is already ${active.status}`, active);
@@ -217,10 +244,20 @@ export async function postMessage(
       parsed.appendSystemPrompt !== undefined
         ? `${SYSTEM_PROMPT_DEFAULT}\n\n${parsed.appendSystemPrompt}`
         : SYSTEM_PROMPT_DEFAULT;
+    // Resolve the provider that will actually be spawned *before* preparing
+    // the MCP wiring — claude wants `--mcp-config <file>`, codex wants
+    // `-c mcp_servers.<name>.*` overrides, and passing the wrong shape
+    // crashes the child immediately (codex rejects `--mcp-config` as an
+    // unknown flag and exits with code 2).
+    const dispatchProvider = resolveChatProvider(
+      deps,
+      parsed.provider,
+      willResume ? latest : null,
+    );
     let toolPrep: Awaited<ReturnType<NonNullable<typeof deps.chatTools>['prepareForRun']>> | null = null;
     if (deps.chatTools) {
       try {
-        toolPrep = await deps.chatTools.prepareForRun();
+        toolPrep = await deps.chatTools.prepareForRun({ provider: dispatchProvider });
       } catch {
         toolPrep = null;
       }

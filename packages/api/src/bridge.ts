@@ -12,6 +12,8 @@ import type {
   AutopilotEffort,
   AutopilotKind,
   AutopilotPersonaSnapshot,
+  AutopilotPlanningEvent,
+  AutopilotPlanningSlot,
   AutopilotSession,
   AutopilotStatus,
   Card,
@@ -52,6 +54,8 @@ export type {
   AutopilotEffort,
   AutopilotKind,
   AutopilotPersonaSnapshot,
+  AutopilotPlanningEvent,
+  AutopilotPlanningSlot,
   AutopilotSession,
   AutopilotStatus,
   Card,
@@ -120,9 +124,15 @@ export interface SuggestFeatureBacklogEntry {
   number?: number;
 }
 
+export type PlannerEvent =
+  | { kind: 'tool'; name: string; summary: string }
+  | { kind: 'thought'; text: string };
+
 export interface SuggestFeatureInput {
   backlog: SuggestFeatureBacklogEntry[];
   personaPrompt: string;
+  provider?: ProviderId;
+  onEvent?: (event: PlannerEvent) => void;
 }
 
 export type SuggestFeatureFn = (input: SuggestFeatureInput) => Promise<DraftedIssue>;
@@ -153,13 +163,7 @@ export interface SentryAnalyzerInput {
 
 export type SentryAnalyzerFn = (input: SentryAnalyzerInput) => Promise<SentrySuggestion>;
 
-export type ProviderId =
-  | 'claude-code'
-  | 'anthropic'
-  | 'openai'
-  | 'google'
-  | 'deepseek'
-  | 'xai';
+export type ProviderId = 'claude-code' | 'codex-cli';
 
 export interface ProviderConfigPayload {
   id: ProviderId;
@@ -485,6 +489,7 @@ export interface BridgeChannels {
       body: string;
       dispatch?: boolean;
       model?: string;
+      provider?: ProviderId;
       appendSystemPrompt?: string;
     };
     result: PostMessageResult;
@@ -596,7 +601,10 @@ export interface BridgeChannels {
     result: WorkspaceFolderPayload;
   };
   'composer:draft': { args: { description: string }; result: DraftedIssue };
-  'composer:suggest': { args: { personaPrompt: string }; result: DraftedIssue };
+  'composer:suggest': {
+    args: { personaPrompt: string; provider?: ProviderId };
+    result: DraftedIssue;
+  };
   'attachments:upload': {
     args: { contentType: string; data: Uint8Array };
     result: UploadAttachmentResult;

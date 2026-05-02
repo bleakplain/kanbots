@@ -1,4 +1,5 @@
 import type { IssueSource } from '@kanbots/core';
+import type { AgentRunProvider } from '@kanbots/dispatcher';
 import type { Store } from '@kanbots/local-store';
 import type { AgentSupervisor } from '../agent-runs/supervisor.js';
 import type { AutopilotManager } from '../autopilot/orchestrator.js';
@@ -6,6 +7,7 @@ import type {
   Config,
   DraftIssueFn,
   EventSubscribeResult,
+  PlannerEvent,
   SentryAnalyzerFn,
   SuggestFeatureFn,
 } from '../bridge.js';
@@ -14,6 +16,7 @@ export type {
   Config,
   DraftIssueFn,
   EventSubscribeResult,
+  PlannerEvent,
   SentryAnalyzerFn,
   SuggestFeatureFn,
 };
@@ -28,8 +31,6 @@ export interface SentryRuntime {
 }
 
 export interface ProvidersRuntime {
-  encryptKey(plaintext: string): { buffer: Buffer; encryption: 'safe' | 'plain' };
-  decryptKey(buffer: Buffer | null, encryption: 'safe' | 'plain'): string | null;
   safeStorageAvailable(): boolean;
   /** True if Claude Code CLI OAuth credentials are present on disk. */
   hasClaudeCodeCredentials(): boolean;
@@ -37,11 +38,13 @@ export interface ProvidersRuntime {
 
 export interface ChatToolRuntime {
   /**
-   * Returns the extra args + env vars to pass to `claude` so the chat
-   * agent has the kanbots MCP server wired in. Implementations issue a
-   * fresh per-run token and write the MCP config file.
+   * Returns the extra args + env vars to pass to the underlying agent CLI so
+   * the chat agent has the kanbots MCP server wired in. The shape of those
+   * args is provider-specific (claude takes `--mcp-config <file>`; codex
+   * takes repeated `-c mcp_servers.<name>.* = ...` overrides), so callers
+   * must pass the provider that will actually be spawned.
    */
-  prepareForRun(): Promise<{
+  prepareForRun(input: { provider: AgentRunProvider }): Promise<{
     extraArgs: string[];
     env: Record<string, string>;
     /** Called once the run terminates so the token can be revoked. */
@@ -71,6 +74,12 @@ export interface HandlerDeps {
   budgets?: WorkspaceBudgetsAccessor;
   revealPath?: (path: string) => Promise<void>;
   chatTools?: ChatToolRuntime;
+  /**
+   * Optional sink for live planner activity from `composer:suggest`. The IPC
+   * layer wires this up to broadcast events back to the renderer that
+   * triggered the suggest call so the UI can show ideation progress.
+   */
+  onSuggestEvent?: (event: PlannerEvent) => void;
 }
 
 export interface SubscriptionRegisterArgs {

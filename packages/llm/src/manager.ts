@@ -1,11 +1,5 @@
-import { anthropicAdapter } from './adapters/anthropic.js';
 import { claudeCodeAdapter } from './adapters/claude-code.js';
-import { googleAdapter } from './adapters/google.js';
-import {
-  deepseekAdapter,
-  openaiAdapter,
-  xaiAdapter,
-} from './adapters/openai-compatible.js';
+import { codexCliAdapter } from './adapters/codex-cli.js';
 import type {
   ChatRequest,
   ChatResponse,
@@ -17,11 +11,7 @@ import type {
 
 const ADAPTERS: Record<ProviderId, ProviderAdapter> = {
   'claude-code': claudeCodeAdapter,
-  anthropic: anthropicAdapter,
-  openai: openaiAdapter,
-  google: googleAdapter,
-  deepseek: deepseekAdapter,
-  xai: xaiAdapter,
+  'codex-cli': codexCliAdapter,
 };
 
 export function getAdapter(id: ProviderId): ProviderAdapter {

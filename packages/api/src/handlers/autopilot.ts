@@ -26,6 +26,7 @@ const featureDevConfigSchema = z
     kind: z.literal('feature-dev'),
     personas: z.array(personaSnapshotSchema).min(1).max(20),
     model: z.string().min(1).max(120).optional(),
+    provider: z.enum(['claude-code', 'codex-cli']).optional(),
     effort: effortSchema.optional(),
     parallelism: z.number().int().min(1).max(4).optional(),
     sessionCostBudgetUsd: z.number().positive().optional(),
