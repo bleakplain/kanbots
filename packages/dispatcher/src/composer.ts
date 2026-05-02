@@ -1,5 +1,10 @@
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
+
+export type SuggesterProvider = 'claude-code' | 'codex-cli';
 
 export interface DraftIssueInput {
   description: string;
@@ -26,9 +31,17 @@ export interface BacklogEntry {
   number?: number;
 }
 
+export type PlannerEvent =
+  | { kind: 'tool'; name: string; summary: string }
+  | { kind: 'thought'; text: string };
+
+export type OnPlannerEvent = (event: PlannerEvent) => void;
+
 export interface SuggestFeatureInput {
   backlog: BacklogEntry[];
   personaPrompt: string;
+  provider?: SuggesterProvider;
+  onEvent?: OnPlannerEvent;
 }
 
 export interface CreateComposerOptions {
@@ -39,7 +52,10 @@ export interface CreateComposerOptions {
   spawn?: SpawnFn;
 }
 
-export type CreateSuggesterOptions = CreateComposerOptions;
+export interface CreateSuggesterOptions extends CreateComposerOptions {
+  /** Override the codex binary path; defaults to 'codex'. */
+  codexCommand?: string;
+}
 
 export type SpawnFn = (
   command: string,
@@ -55,6 +71,9 @@ export type DraftIssueFn = (input: DraftIssueInput) => Promise<DraftedIssue>;
 export type SuggestFeatureFn = (input: SuggestFeatureInput) => Promise<DraftedIssue>;
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+// Ideation does Glob/Grep/Read across the repo and a verify pass before
+// drafting, so it routinely needs more than the 2-minute draft budget.
+const DEFAULT_SUGGESTER_TIMEOUT_MS = 600_000;
 
 const ISSUE_JSON_SCHEMA = {
   type: 'object',
@@ -142,13 +161,16 @@ interface RunClaudeOptions {
   systemPrompt: string;
   stdin: string;
   spawn: SpawnFn;
+  onEvent?: OnPlannerEvent;
 }
 
 async function runClaudeForDraftedIssue(opts: RunClaudeOptions): Promise<DraftedIssue> {
+  const streaming = !!opts.onEvent;
   const args = [
     '-p',
     '--output-format',
-    'json',
+    streaming ? 'stream-json' : 'json',
+    ...(streaming ? ['--verbose'] : []),
     '--no-session-persistence',
     '--system-prompt',
     opts.systemPrompt,
@@ -162,14 +184,67 @@ async function runClaudeForDraftedIssue(opts: RunClaudeOptions): Promise<Drafted
   let stdout = '';
   let stderr = '';
   let killedByTimeout = false;
+  let resultEvent: unknown = null;
+  let lineBuf = '';
 
   const timer = setTimeout(() => {
     killedByTimeout = true;
     child.kill('SIGTERM');
   }, opts.timeoutMs);
 
+  const handleStreamLine = (line: string): void => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object') return;
+    const event = parsed as { type?: unknown; message?: unknown };
+    if (event.type === 'result') {
+      resultEvent = event;
+      return;
+    }
+    if (!opts.onEvent) return;
+    if (event.type === 'assistant' && event.message && typeof event.message === 'object') {
+      const content = (event.message as { content?: unknown }).content;
+      if (!Array.isArray(content)) return;
+      for (const block of content) {
+        if (!block || typeof block !== 'object') continue;
+        const b = block as { type?: unknown; name?: unknown; input?: unknown; text?: unknown };
+        if (b.type === 'tool_use' && typeof b.name === 'string') {
+          opts.onEvent({
+            kind: 'tool',
+            name: b.name,
+            summary: summarizeToolUse(b.name, b.input),
+          });
+        } else if (b.type === 'text' && typeof b.text === 'string') {
+          const text = b.text.trim();
+          if (text.length > 0) {
+            const oneLine = text.split('\n')[0]?.slice(0, 160) ?? '';
+            if (oneLine.length > 0) {
+              opts.onEvent({ kind: 'thought', text: oneLine });
+            }
+          }
+        }
+      }
+    }
+  };
+
   child.stdout?.on('data', (chunk: Buffer) => {
-    stdout += chunk.toString('utf8');
+    const text = chunk.toString('utf8');
+    stdout += text;
+    if (!streaming) return;
+    lineBuf += text;
+    let idx = lineBuf.indexOf('\n');
+    while (idx !== -1) {
+      const line = lineBuf.slice(0, idx);
+      lineBuf = lineBuf.slice(idx + 1);
+      handleStreamLine(line);
+      idx = lineBuf.indexOf('\n');
+    }
   });
   child.stderr?.on('data', (chunk: Buffer) => {
     stderr += chunk.toString('utf8');
@@ -193,6 +268,11 @@ async function runClaudeForDraftedIssue(opts: RunClaudeOptions): Promise<Drafted
     });
   });
 
+  if (streaming && lineBuf.length > 0) {
+    handleStreamLine(lineBuf);
+    lineBuf = '';
+  }
+
   if (killedByTimeout) {
     throw new ComposerError(`composer timed out after ${opts.timeoutMs}ms`, stderr);
   }
@@ -200,7 +280,10 @@ async function runClaudeForDraftedIssue(opts: RunClaudeOptions): Promise<Drafted
     throw new ComposerError(`claude exited with code ${exitCode}`, stderr);
   }
 
-  const parsedJson = parseJsonOrThrow(stdout, stderr);
+  const parsedJson = streaming ? resultEvent : parseJsonOrThrow(stdout, stderr);
+  if (parsedJson === null) {
+    throw new ComposerError('claude produced no result event', stderr);
+  }
   const result = claudeResultSchema.safeParse(parsedJson);
   if (!result.success) {
     throw new ComposerError(`unexpected claude output shape: ${result.error.message}`, stderr);
@@ -216,6 +299,29 @@ async function runClaudeForDraftedIssue(opts: RunClaudeOptions): Promise<Drafted
     );
   }
   return drafted.data;
+}
+
+function summarizeToolUse(name: string, input: unknown): string {
+  if (!input || typeof input !== 'object') return '';
+  const i = input as Record<string, unknown>;
+  switch (name) {
+    case 'Read': {
+      const p = typeof i.file_path === 'string' ? i.file_path : '';
+      return p;
+    }
+    case 'Glob': {
+      const pattern = typeof i.pattern === 'string' ? i.pattern : '';
+      const path = typeof i.path === 'string' && i.path.length > 0 ? ` in ${i.path}` : '';
+      return `${pattern}${path}`;
+    }
+    case 'Grep': {
+      const pattern = typeof i.pattern === 'string' ? i.pattern : '';
+      const path = typeof i.path === 'string' && i.path.length > 0 ? ` in ${i.path}` : '';
+      return `${pattern}${path}`;
+    }
+    default:
+      return '';
+  }
 }
 
 export function createComposer(opts: CreateComposerOptions): DraftIssueFn {
@@ -238,22 +344,39 @@ export function createComposer(opts: CreateComposerOptions): DraftIssueFn {
 }
 
 export function createSuggester(opts: CreateSuggesterOptions): SuggestFeatureFn {
-  const command = opts.command ?? 'claude';
+  const claudeCommand = opts.command ?? 'claude';
+  const codexCommand = opts.codexCommand ?? 'codex';
   const cwd = opts.cwd;
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_SUGGESTER_TIMEOUT_MS;
   const systemPromptOverride = opts.systemPrompt;
   const spawn = opts.spawn ?? nodeSpawn;
 
   return async function suggestFeature(input: SuggestFeatureInput): Promise<DraftedIssue> {
     const systemPrompt = systemPromptOverride ?? buildSuggestSystemPrompt(input.personaPrompt);
-    return runClaudeForDraftedIssue({
-      command,
+    const userPrompt = formatBacklogPrompt(input.backlog);
+    const provider: SuggesterProvider = input.provider ?? 'claude-code';
+    if (provider === 'codex-cli') {
+      const codexOpts: RunCodexOptions = {
+        command: codexCommand,
+        cwd,
+        timeoutMs,
+        systemPrompt,
+        userPrompt,
+        spawn,
+      };
+      if (input.onEvent) codexOpts.onEvent = input.onEvent;
+      return runCodexForDraftedIssue(codexOpts);
+    }
+    const runOpts: RunClaudeOptions = {
+      command: claudeCommand,
       cwd,
       timeoutMs,
       systemPrompt,
-      stdin: formatBacklogPrompt(input.backlog),
+      stdin: userPrompt,
       spawn,
-    });
+    };
+    if (input.onEvent) runOpts.onEvent = input.onEvent;
+    return runClaudeForDraftedIssue(runOpts);
   };
 }
 
@@ -314,4 +437,203 @@ function parseJsonOrThrow(stdout: string, stderr: string): unknown {
       stderr,
     );
   }
+}
+
+const CODEX_PROMPT_DELIMITER = '\n\n---\n\n';
+
+interface RunCodexOptions {
+  command: string;
+  cwd: string;
+  timeoutMs: number;
+  systemPrompt: string;
+  userPrompt: string;
+  spawn: SpawnFn;
+  onEvent?: OnPlannerEvent;
+}
+
+async function runCodexForDraftedIssue(opts: RunCodexOptions): Promise<DraftedIssue> {
+  // codex --output-schema requires a file path; write the schema to a temp
+  // dir outside the repo so it isn't visible to the agent.
+  const schemaDir = await mkdtemp(join(tmpdir(), 'kanbots-codex-suggest-'));
+  const schemaPath = join(schemaDir, 'schema.json');
+  await writeFile(schemaPath, JSON.stringify(ISSUE_JSON_SCHEMA), 'utf8');
+
+  try {
+    return await spawnCodex(opts, schemaPath);
+  } finally {
+    await rm(schemaDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function spawnCodex(opts: RunCodexOptions, schemaPath: string): Promise<DraftedIssue> {
+  const args = [
+    'exec',
+    '--json',
+    '--skip-git-repo-check',
+    '--ephemeral',
+    '--sandbox',
+    'read-only',
+    '--output-schema',
+    schemaPath,
+    `${opts.systemPrompt}${CODEX_PROMPT_DELIMITER}${opts.userPrompt}`,
+  ];
+
+  const child = opts.spawn(opts.command, args, { cwd: opts.cwd });
+  let stderr = '';
+  let killedByTimeout = false;
+  let agentMessageText: string | null = null;
+  let turnError: string | null = null;
+  let lineBuf = '';
+
+  const timer = setTimeout(() => {
+    killedByTimeout = true;
+    child.kill('SIGTERM');
+  }, opts.timeoutMs);
+
+  const handleLine = (line: string): void => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object') return;
+    const ev = parsed as { type?: unknown; item?: unknown; error?: unknown; message?: unknown };
+    if (ev.type === 'turn.failed') {
+      const err = ev.error as { message?: unknown } | undefined;
+      turnError = typeof err?.message === 'string' ? err.message : 'codex turn failed';
+      return;
+    }
+    if (ev.type === 'error' && typeof ev.message === 'string') {
+      turnError = ev.message;
+      return;
+    }
+    if (ev.type === 'item.completed' && ev.item && typeof ev.item === 'object') {
+      const item = ev.item as { type?: unknown; text?: unknown };
+      if (item.type === 'agent_message' && typeof item.text === 'string') {
+        agentMessageText = item.text;
+      }
+      return;
+    }
+    if (!opts.onEvent) return;
+    if (ev.type === 'item.started' && ev.item && typeof ev.item === 'object') {
+      const item = ev.item as { type?: unknown; command?: unknown; query?: unknown };
+      if (item.type === 'command_execution' && typeof item.command === 'string') {
+        opts.onEvent({ kind: 'tool', name: 'shell', summary: item.command.slice(0, 160) });
+      } else if (item.type === 'web_search' && typeof item.query === 'string') {
+        opts.onEvent({ kind: 'tool', name: 'WebSearch', summary: item.query.slice(0, 160) });
+      }
+    }
+  };
+
+  child.stdout?.on('data', (chunk: Buffer) => {
+    lineBuf += chunk.toString('utf8');
+    let idx = lineBuf.indexOf('\n');
+    while (idx !== -1) {
+      const line = lineBuf.slice(0, idx);
+      lineBuf = lineBuf.slice(idx + 1);
+      handleLine(line);
+      idx = lineBuf.indexOf('\n');
+    }
+  });
+  child.stderr?.on('data', (chunk: Buffer) => {
+    stderr += chunk.toString('utf8');
+  });
+
+  // codex reads the prompt from argv (passed above); close stdin so it
+  // doesn't wait on it.
+  child.stdin?.end();
+
+  const exitCode: number = await new Promise((resolve, reject) => {
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(code ?? 0);
+    });
+  });
+
+  if (lineBuf.length > 0) {
+    handleLine(lineBuf);
+    lineBuf = '';
+  }
+
+  if (killedByTimeout) {
+    throw new ComposerError(`composer timed out after ${opts.timeoutMs}ms`, stderr);
+  }
+  if (exitCode !== 0) {
+    throw new ComposerError(
+      turnError ? `codex exited with code ${exitCode}: ${turnError}` : `codex exited with code ${exitCode}`,
+      stderr,
+    );
+  }
+  if (turnError) {
+    throw new ComposerError(turnError, stderr);
+  }
+  if (!agentMessageText) {
+    throw new ComposerError('codex produced no agent message', stderr);
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(agentMessageText);
+  } catch {
+    // Defensive: if codex wrapped the JSON in prose or fences, extract the
+    // first JSON object.
+    const extracted = extractFirstJsonObject(agentMessageText);
+    if (extracted === null) {
+      throw new ComposerError('codex output was not valid JSON', stderr);
+    }
+    payload = extracted;
+  }
+
+  const drafted = draftedSchema.safeParse(payload);
+  if (!drafted.success) {
+    throw new ComposerError(
+      `codex did not return a valid drafted issue: ${drafted.error.message}`,
+      stderr,
+    );
+  }
+  return drafted.data;
+}
+
+function extractFirstJsonObject(text: string): unknown {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        const slice = text.slice(start, i + 1);
+        try {
+          return JSON.parse(slice);
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
 }

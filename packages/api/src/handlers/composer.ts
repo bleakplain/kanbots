@@ -25,11 +25,13 @@ export async function draft(
 const suggestSchema = z
   .object({
     personaPrompt: z.string().min(1).max(8_000),
+    provider: z.enum(['claude-code', 'codex-cli']).optional(),
   })
   .strict();
 
 export interface SuggestArgs {
   personaPrompt: string;
+  provider?: 'claude-code' | 'codex-cli';
 }
 
 export async function suggest(
@@ -39,5 +41,10 @@ export async function suggest(
   const parsed = parseArgs(suggestSchema, args);
   const issues = await deps.source.listIssues({ state: 'all' });
   const backlog = collectSuggestionEntries(issues);
-  return deps.suggestIssue({ backlog, personaPrompt: parsed.personaPrompt });
+  return deps.suggestIssue({
+    backlog,
+    personaPrompt: parsed.personaPrompt,
+    ...(parsed.provider !== undefined ? { provider: parsed.provider } : {}),
+    ...(deps.onSuggestEvent !== undefined ? { onEvent: deps.onSuggestEvent } : {}),
+  });
 }

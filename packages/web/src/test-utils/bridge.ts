@@ -52,6 +52,9 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     | 'claudeAuthStatus'
     | 'claudeLoginStart'
     | 'claudeLoginCancel'
+    | 'codexAuthStatus'
+    | 'codexLoginStart'
+    | 'codexLoginCancel'
     | 'setNotifyOnRunComplete'
   > = {
     bootstrap: () =>
@@ -70,6 +73,9 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     claudeAuthStatus: () => Promise.resolve({ authed: true }),
     claudeLoginStart: () => Promise.resolve({ ok: true }),
     claudeLoginCancel: () => Promise.resolve(),
+    codexAuthStatus: () => Promise.resolve({ authed: true }),
+    codexLoginStart: () => Promise.resolve({ ok: true }),
+    codexLoginCancel: () => Promise.resolve(),
     setNotifyOnRunComplete: () => Promise.resolve({ ok: true }),
   };
 

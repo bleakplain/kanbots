@@ -15,37 +15,15 @@ const MODELS: Record<ProviderId, ModelEntry[]> = {
     { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
     { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
   ],
-  anthropic: [
-    { id: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
-    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
-  ],
-  openai: [
+  'codex-cli': [
     { id: 'gpt-5', label: 'GPT-5' },
     { id: 'gpt-5-mini', label: 'GPT-5 mini' },
-    { id: 'gpt-4.1', label: 'GPT-4.1' },
-  ],
-  google: [
-    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  ],
-  deepseek: [
-    { id: 'deepseek-chat', label: 'DeepSeek Chat' },
-    { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner' },
-  ],
-  xai: [
-    { id: 'grok-4', label: 'Grok 4' },
-    { id: 'grok-4-mini', label: 'Grok 4 mini' },
   ],
 };
 
 const PROVIDER_LABELS: Record<ProviderId, string> = {
   'claude-code': 'Claude Code',
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  google: 'Google Gemini',
-  deepseek: 'DeepSeek',
-  xai: 'xAI Grok',
+  'codex-cli': 'Codex CLI',
 };
 
 export interface ModelPickerValue {
@@ -58,9 +36,9 @@ export interface ModelPickerProps {
   onChange: (next: ModelPickerValue) => void;
   className?: string;
   /**
-   * If true, only providers that support agent runs (i.e. `claude-code` in v1)
-   * are shown. Use this for the agent-dispatch picker; leave false (default)
-   * for chat-only contexts where the renderer can use any configured provider.
+   * If true, only providers that support agent runs are shown. Both
+   * `claude-code` and `codex-cli` qualify, so this is currently a no-op
+   * filter — kept on the API for parity with chat-only futures.
    */
   agentRunsOnly?: boolean;
 }
@@ -72,7 +50,7 @@ export function ModelPicker({ value, onChange, className, agentRunsOnly }: Model
     if (!providers) return [] as Array<{ provider: ProviderId; models: ModelEntry[] }>;
     return providers.providers
       .filter((p) => p.enabled && p.hasKey)
-      .filter((p) => (agentRunsOnly ? p.id === 'claude-code' : true))
+      .filter((p) => (agentRunsOnly ? p.id === 'claude-code' || p.id === 'codex-cli' : true))
       .map((p) => ({ provider: p.id, models: MODELS[p.id] ?? [] }));
   }, [providers, agentRunsOnly]);
 

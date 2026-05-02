@@ -162,6 +162,7 @@ export type AutopilotConfig =
       kind: 'feature-dev';
       personas: AutopilotPersonaSnapshot[];
       model?: string;
+      provider?: ProviderId;
       effort?: AutopilotEffort;
       parallelism?: number;
       sessionCostBudgetUsd?: number;
@@ -186,6 +187,19 @@ export interface AutopilotChildEntry {
   note?: string;
 }
 
+export interface AutopilotPlanningEvent {
+  kind: 'tool' | 'thought';
+  text: string;
+  at: string;
+}
+
+export interface AutopilotPlanningSlot {
+  slotIndex: number;
+  persona: string;
+  startedAt: string;
+  recentEvents: AutopilotPlanningEvent[];
+}
+
 export interface AutopilotSession {
   id: number;
   issueNumber: number;
@@ -198,9 +212,12 @@ export interface AutopilotSession {
   cycleIndex: number;
   currentChildRunId: number | null;
   children: AutopilotChildEntry[];
+  /** Ephemeral, not persisted: per-slot live planner activity while
+   * suggestIssue is in flight. Cleared once a child task is appended. */
+  planningSlots?: AutopilotPlanningSlot[];
 }
 
-export type ProviderId = 'claude-code' | 'anthropic' | 'openai' | 'google' | 'deepseek' | 'xai';
+export type ProviderId = 'claude-code' | 'codex-cli';
 export type ProviderKeyEncryption = 'safe' | 'plain';
 
 export interface ProviderConfig {

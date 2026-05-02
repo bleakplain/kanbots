@@ -32,6 +32,7 @@ import type {
   AgentRun,
   AgentRunStatus,
   AutopilotChildEntry,
+  AutopilotPlanningSlot,
   AutopilotSession,
   Card,
   DecisionPayload,
@@ -1690,17 +1691,33 @@ function AutopilotTab({ issueNumber }: { issueNumber: number }) {
         <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8 }}>
           Children · {session.children.length}
         </div>
-        {session.children.length === 0 ? (
+        {session.planningSlots && session.planningSlots.length > 0 ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              marginBottom: session.children.length > 0 ? 8 : 0,
+            }}
+          >
+            {session.planningSlots.map((slot) => (
+              <PlanningSlotRow key={slot.slotIndex} slot={slot} />
+            ))}
+          </div>
+        ) : null}
+        {session.children.length === 0 &&
+        (!session.planningSlots || session.planningSlots.length === 0) ? (
           <div className="kb-desc-md" style={{ color: 'var(--ink-3)' }}>
             No tasks created yet. The first one will appear shortly.
           </div>
-        ) : (
+        ) : null}
+        {session.children.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {[...session.children].reverse().map((child, idx) => (
               <ChildRow key={`${child.issueNumber}-${idx}`} child={child} />
             ))}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -1774,6 +1791,81 @@ function ChildRow({ child }: { child: AutopilotChildEntry }) {
         {child.status}
       </span>
     </a>
+  );
+}
+
+function PlanningSlotRow({ slot }: { slot: AutopilotPlanningSlot }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const events = slot.recentEvents.slice(-3);
+  return (
+    <div
+      style={{
+        padding: '8px 10px',
+        borderRadius: 6,
+        background: 'var(--bg-2)',
+        border: '1px solid var(--hairline-soft)',
+        fontSize: 12,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span
+          style={{
+            display: 'inline-block',
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: 'var(--running)',
+            flexShrink: 0,
+          }}
+        />
+        <span style={{ flex: 1, color: 'var(--ink-1)' }}>
+          <span style={{ color: 'var(--ink-3)' }}>Planning · </span>
+          {slot.persona}
+        </span>
+        <span style={{ color: 'var(--ink-3)', fontSize: 11 }}>
+          {fmtElapsed(slot.startedAt)}
+        </span>
+      </div>
+      {events.length === 0 ? (
+        <div
+          className="mono"
+          style={{ color: 'var(--ink-3)', fontSize: 11, paddingLeft: 18 }}
+        >
+          starting…
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            paddingLeft: 18,
+            fontSize: 11,
+          }}
+        >
+          {events.map((e, i) => (
+            <span
+              key={`${e.at}-${i}`}
+              className="mono"
+              style={{
+                color: i === events.length - 1 ? 'var(--ink-2)' : 'var(--ink-3)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {e.text}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

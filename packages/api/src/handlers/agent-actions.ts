@@ -18,14 +18,7 @@ Your job is to read the diff already in this worktree and produce a focused revi
    commit. Do NOT spawn checks.
 5. End your turn after the review.`;
 
-const PROVIDER_ENUM = z.enum([
-  'claude-code',
-  'anthropic',
-  'openai',
-  'google',
-  'deepseek',
-  'xai',
-]);
+const PROVIDER_ENUM = z.enum(['claude-code', 'codex-cli']);
 
 const startAgentSchema = z
   .object({
@@ -77,13 +70,7 @@ export interface StartAgentArgs {
   prompt: string;
   appendSystemPrompt?: string;
   model?: string;
-  provider?:
-    | 'claude-code'
-    | 'anthropic'
-    | 'openai'
-    | 'google'
-    | 'deepseek'
-    | 'xai';
+  provider?: 'claude-code' | 'codex-cli';
 }
 
 export interface NumberArgs {

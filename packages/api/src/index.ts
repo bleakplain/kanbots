@@ -60,6 +60,8 @@ export type {
   AutopilotEffort,
   AutopilotKind,
   AutopilotPersonaSnapshot,
+  AutopilotPlanningEvent,
+  AutopilotPlanningSlot,
   AutopilotSession,
   AutopilotStatus,
   BridgeChannels,

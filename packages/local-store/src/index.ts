@@ -153,6 +153,8 @@ export type {
   AutopilotEffort,
   AutopilotKind,
   AutopilotPersonaSnapshot,
+  AutopilotPlanningEvent,
+  AutopilotPlanningSlot,
   AutopilotSession,
   AutopilotStatus,
   CacheEntry,

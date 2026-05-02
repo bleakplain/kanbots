@@ -65,14 +65,7 @@ const addCommentSchema = z
   })
   .strict();
 
-const PROVIDER_ENUM = z.enum([
-  'claude-code',
-  'anthropic',
-  'openai',
-  'google',
-  'deepseek',
-  'xai',
-]);
+const PROVIDER_ENUM = z.enum(['claude-code', 'codex-cli']);
 
 const postMessageSchema = z
   .object({
@@ -133,13 +126,7 @@ export interface PostMessageArgs {
   body: string;
   dispatch?: boolean;
   model?: string;
-  provider?:
-    | 'claude-code'
-    | 'anthropic'
-    | 'openai'
-    | 'google'
-    | 'deepseek'
-    | 'xai';
+  provider?: 'claude-code' | 'codex-cli';
   appendSystemPrompt?: string;
 }
 
@@ -151,13 +138,7 @@ export interface DispatchArgs {
   number: number;
   fromStatus: StatusKey | null;
   model?: string;
-  provider?:
-    | 'claude-code'
-    | 'anthropic'
-    | 'openai'
-    | 'google'
-    | 'deepseek'
-    | 'xai';
+  provider?: 'claude-code' | 'codex-cli';
 }
 
 export async function list(
@@ -426,10 +407,23 @@ export function decorateIssue(
   activeRun: IssueActiveRunPayload | null = null,
   sentryMeta: SentryMetaPayload | null = null,
 ): DecoratedIssue {
+  // Live agent_runs row is the source of truth for "is this card being worked
+  // on right now". Labels lag behind (they're only refreshed on certain code
+  // paths and demoted at startup), so a fork/re-dispatch can leave a stale
+  // 'idle' label on an issue that the supervisor is actively running. Override
+  // here so the card always reflects reality when there's an active run.
+  let agent = agentFromLabels(issue.labels);
+  if (activeRun !== null) {
+    if (activeRun.status === 'starting' || activeRun.status === 'running') {
+      agent = 'running';
+    } else if (activeRun.status === 'awaiting_input') {
+      agent = 'blocked';
+    }
+  }
   return {
     ...issue,
     status: statusFromLabels(issue.labels),
-    agent: agentFromLabels(issue.labels),
+    agent,
     activeRun,
     sentryMeta,
   };

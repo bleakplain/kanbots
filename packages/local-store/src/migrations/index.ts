@@ -14,6 +14,8 @@ import { migration as m0013 } from './0013-providers.js';
 import { migration as m0014 } from './0014-agent-run-provider.js';
 import { migration as m0015 } from './0015-thread-last-model.js';
 import { migration as m0016 } from './0016-chat-conversations.js';
+import { migration as m0017 } from './0017-codex-cli-provider.js';
+import { migration as m0018 } from './0018-remove-api-key-providers.js';
 import type { Migration } from './types.js';
 
 export const migrations: readonly Migration[] = [
@@ -33,6 +35,8 @@ export const migrations: readonly Migration[] = [
   m0014,
   m0015,
   m0016,
+  m0017,
+  m0018,
 ];
 
 export type { Migration };

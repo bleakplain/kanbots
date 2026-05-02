@@ -244,6 +244,22 @@ export async function createSupervisor(
     return readDefaultBudget();
   }
 
+  // Falls back to the workspace default provider so dispatch surfaces that
+  // don't expose a picker (drag-to-inProgress, autopilot kickoff) honor the
+  // user's choice. If neither is set, we keep claude-code as the safety net.
+  function resolveProvider(
+    explicit: import('@kanbots/dispatcher').AgentRunProvider | undefined,
+  ): import('@kanbots/dispatcher').AgentRunProvider {
+    if (explicit) return explicit;
+    try {
+      const def = store.providerSettings.get().defaultProvider;
+      if (def === 'claude-code' || def === 'codex-cli') return def;
+    } catch {
+      // settings row may not exist on first run — fall through
+    }
+    return 'claude-code';
+  }
+
   // Any 'starting'/'running' rows on construction belong to a previous app
   // process — the supervisor's in-memory handles don't survive restart, so
   // those runs are by definition dead. Before flipping their DB rows to
@@ -642,7 +658,7 @@ export async function createSupervisor(
     if (cd.active) throw new RateLimitedError(cd);
     let run = store.agentRuns.create({ threadId: input.threadId, status: 'starting' });
     const budget = resolveBudget(input.costBudgetUsd);
-    const provider = input.provider ?? 'claude-code';
+    const provider = resolveProvider(input.provider);
     run = store.agentRuns.update(run.id, {
       ...(input.model !== undefined ? { model: input.model } : {}),
       provider,
@@ -725,6 +741,10 @@ export async function createSupervisor(
       issueNumber: input.issueNumber,
       runId: run.id,
     });
+    // Persist branch + worktree before the slow worktree-creation awaits so
+    // that any `listActiveForRepo` read during that window sees a row with
+    // branchName populated, not null.
+    run = store.agentRuns.update(run.id, { worktreePath, branchName: branch });
 
     try {
       await prepareDir(worktreePath);
@@ -744,10 +764,8 @@ export async function createSupervisor(
     }
 
     const budget = resolveBudget(input.costBudgetUsd);
-    const provider = input.provider ?? 'claude-code';
+    const provider = resolveProvider(input.provider);
     run = store.agentRuns.update(run.id, {
-      worktreePath,
-      branchName: branch,
       ...(input.model !== undefined ? { model: input.model } : {}),
       provider,
       ...(budget !== null ? { costBudgetUsd: budget } : {}),

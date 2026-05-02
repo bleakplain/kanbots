@@ -11,6 +11,7 @@ export interface DispatchAutopilotChildArgs {
   issue: Pick<Issue, 'number' | 'title' | 'body'>;
   threadId: number;
   model?: string;
+  provider?: 'claude-code' | 'codex-cli';
   effort?: AutopilotEffort;
 }
 
@@ -30,6 +31,7 @@ export async function dispatchAutopilotChild(
     }),
   };
   if (args.model !== undefined) startInput.model = args.model;
+  if (args.provider !== undefined) startInput.provider = args.provider;
   return deps.supervisor.start(startInput);
 }
 

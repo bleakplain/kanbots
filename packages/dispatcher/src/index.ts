@@ -14,6 +14,8 @@ export {
   type SuggestFeatureFn,
   type SuggestFeatureInput,
   type SuggestionEntryStatus,
+  type PlannerEvent,
+  type OnPlannerEvent,
 } from './composer.js';
 
 export {

@@ -27,6 +27,8 @@ export type {
   AutopilotConfig,
   AutopilotKind,
   AutopilotPersonaSnapshot,
+  AutopilotPlanningEvent,
+  AutopilotPlanningSlot,
   AutopilotSession,
   AutopilotStatus,
   Card,

@@ -4,12 +4,83 @@ import type {
   AutopilotChildEntry,
   AutopilotConfig,
   AutopilotKind,
+  AutopilotPlanningEvent,
+  AutopilotPlanningSlot,
   AutopilotSession,
   Store,
 } from '@kanbots/local-store';
 import type { AgentSupervisor } from '../agent-runs/supervisor.js';
-import type { SuggestFeatureFn } from '../bridge.js';
+import type { PlannerEvent, SuggestFeatureFn } from '../bridge.js';
 import { runFeatureDevLoop } from './feature-dev.js';
+
+const MAX_RECENT_EVENTS_PER_SLOT = 6;
+
+export interface PlanningTracker {
+  start(sessionId: number, slotIndex: number, persona: string): void;
+  append(sessionId: number, slotIndex: number, event: PlannerEvent): void;
+  clear(sessionId: number, slotIndex: number): void;
+  decorate(session: AutopilotSession): AutopilotSession;
+}
+
+function createPlanningTracker(): PlanningTracker {
+  const bySession = new Map<number, Map<number, AutopilotPlanningSlot>>();
+
+  function getMap(sessionId: number): Map<number, AutopilotPlanningSlot> {
+    let m = bySession.get(sessionId);
+    if (!m) {
+      m = new Map();
+      bySession.set(sessionId, m);
+    }
+    return m;
+  }
+
+  function plannerEventToActivity(event: PlannerEvent): AutopilotPlanningEvent {
+    if (event.kind === 'tool') {
+      const text = event.summary
+        ? `${event.name} ${event.summary}`
+        : event.name;
+      return { kind: 'tool', text, at: new Date().toISOString() };
+    }
+    return { kind: 'thought', text: event.text, at: new Date().toISOString() };
+  }
+
+  return {
+    start(sessionId, slotIndex, persona) {
+      const m = getMap(sessionId);
+      m.set(slotIndex, {
+        slotIndex,
+        persona,
+        startedAt: new Date().toISOString(),
+        recentEvents: [],
+      });
+    },
+    append(sessionId, slotIndex, event) {
+      const m = bySession.get(sessionId);
+      if (!m) return;
+      const slot = m.get(slotIndex);
+      if (!slot) return;
+      const activity = plannerEventToActivity(event);
+      const next = [...slot.recentEvents, activity];
+      const trimmed =
+        next.length > MAX_RECENT_EVENTS_PER_SLOT
+          ? next.slice(next.length - MAX_RECENT_EVENTS_PER_SLOT)
+          : next;
+      m.set(slotIndex, { ...slot, recentEvents: trimmed });
+    },
+    clear(sessionId, slotIndex) {
+      const m = bySession.get(sessionId);
+      if (!m) return;
+      m.delete(slotIndex);
+      if (m.size === 0) bySession.delete(sessionId);
+    },
+    decorate(session) {
+      const m = bySession.get(session.id);
+      if (!m || m.size === 0) return session;
+      const slots = [...m.values()].sort((a, b) => a.slotIndex - b.slotIndex);
+      return { ...session, planningSlots: slots };
+    },
+  };
+}
 
 export interface AutopilotRepoConfig {
   owner: string;
@@ -69,6 +140,7 @@ export interface OrchestratorContext {
   notify: (session: AutopilotSession) => void;
   setCurrentChildRunId: (sessionId: number, runId: number | null) => AutopilotSession;
   resolveSessionBudget: (config: AutopilotSession['config']) => number | null;
+  planning: PlanningTracker;
 }
 
 export interface SessionBudgetExceeded {
@@ -93,6 +165,7 @@ export class SessionBudgetExceededError extends Error implements SessionBudgetEx
 export function createAutopilotManager(opts: AutopilotManagerOpts): AutopilotManager {
   const { store, source, supervisor, suggestIssue, repoPath, repoConfig } = opts;
   const active = new Map<number, ActiveLoop>();
+  const planning = createPlanningTracker();
 
   // Restart sweep — runs once on construction. Must be AFTER createSupervisor's
   // own sweep so that current_child_run_id doesn't reference a row still
@@ -100,7 +173,7 @@ export function createAutopilotManager(opts: AutopilotManagerOpts): AutopilotMan
   store.autopilotSessions.markRunningAsInterrupted('interrupted: app restart');
 
   function notify(session: AutopilotSession): void {
-    if (opts.onSessionChange) opts.onSessionChange(session);
+    if (opts.onSessionChange) opts.onSessionChange(planning.decorate(session));
   }
 
   function setCurrentChildRunId(sessionId: number, runId: number | null): AutopilotSession {
@@ -138,6 +211,7 @@ export function createAutopilotManager(opts: AutopilotManagerOpts): AutopilotMan
     notify,
     setCurrentChildRunId,
     resolveSessionBudget,
+    planning,
   };
 
   async function start(input: StartAutopilotInput): Promise<StartAutopilotResult> {
@@ -233,57 +307,53 @@ export function createAutopilotManager(opts: AutopilotManagerOpts): AutopilotMan
     if (!existing) throw new Error(`autopilot session ${sessionId} not found`);
     if (existing.status !== 'running') return existing;
 
-    const updated = store.autopilotSessions.update(sessionId, {
-      stopReason: opts2.stopChildren
-        ? 'stopped by user (children cancelled)'
-        : 'stopped by user (children finishing)',
+    // Mark the session stopped synchronously so the UI flips state on the
+    // first round-trip. Awaiting the in-flight suggester (a claude/codex CLI
+    // subprocess that ignores our AbortSignal) used to hold this call open
+    // for the rest of the current pass, which is why "Stop autopilot" felt
+    // like it did nothing. The slot sees signal.aborted on its next await
+    // and exits cleanly; runLoop's finally is a no-op once status is already
+    // 'stopped'.
+    const stopReason = opts2.stopChildren
+      ? 'stopped by user (children cancelled)'
+      : 'stopped by user (children finishing)';
+    const stopped = store.autopilotSessions.update(sessionId, {
+      status: 'stopped',
+      stopReason,
+      endedAt: new Date().toISOString(),
+      currentChildRunId: null,
     });
-    notify(updated);
+    notify(stopped);
 
     const loop = active.get(sessionId);
     if (loop) loop.controller.abort();
 
     if (opts2.stopChildren) {
-      // With parallelism > 1, multiple children may be in flight — stop all of
-      // them rather than just the most recently started one.
+      // With parallelism > 1 multiple children may be in flight. supervisor
+      // .stop can take seconds (graceful SIGTERM window) — kick them off in
+      // the background so the IPC caller isn't blocked. Each child emits its
+      // own status broadcast as it terminates.
       const activeChildIds = existing.children
         .filter((c) => c.status === 'running' && c.runId !== null)
         .map((c) => c.runId as number);
-      await Promise.allSettled(activeChildIds.map((id) => supervisor.stop(id)));
+      void Promise.allSettled(activeChildIds.map((id) => supervisor.stop(id)));
     }
 
-    if (loop) {
-      try {
-        await loop.done;
-      } catch {
-        // already handled by runLoop finally
-      }
-    }
-
-    const after = store.autopilotSessions.findById(sessionId);
-    if (!after) throw new Error(`autopilot session ${sessionId} disappeared`);
-    if (after.status === 'running') {
-      const final = store.autopilotSessions.update(sessionId, {
-        status: 'stopped',
-        endedAt: new Date().toISOString(),
-        currentChildRunId: null,
-      });
-      notify(final);
-      return final;
-    }
-    return after;
+    return stopped;
   }
 
   function getSession(sessionId: number): AutopilotSession | null {
-    return store.autopilotSessions.findById(sessionId);
+    const session = store.autopilotSessions.findById(sessionId);
+    return session ? planning.decorate(session) : null;
   }
 
   function getSessionByIssue(issueNumber: number): AutopilotSession | null {
-    return store.autopilotSessions.findByIssueNumber(issueNumber);
+    const session = store.autopilotSessions.findByIssueNumber(issueNumber);
+    return session ? planning.decorate(session) : null;
   }
 
   function listActive(): AutopilotSession[] {
-    return store.autopilotSessions.listActive();
+    return store.autopilotSessions.listActive().map((s) => planning.decorate(s));
   }
 
   async function stopAllForShutdown(): Promise<void> {

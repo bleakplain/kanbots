@@ -1,20 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
+import { api } from '../../api.js';
 import { createPersona, deletePersona, listPersonas, type Persona } from '../../personas.js';
+import type { ProviderId } from '../../types.js';
 
 export interface PersonaPickerModalProps {
   onClose: () => void;
-  onPick: (persona: Persona) => void;
+  onPick: (persona: Persona, provider?: ProviderId) => void;
   /** If true, the user can pick multiple personas before confirming. */
   multiSelect?: boolean;
   /** Confirm button label override in multi-select mode. */
   multiSelectConfirmLabel?: string;
   /** Called with the selected personas when the user confirms in multi-select mode. */
-  onConfirm?: (personas: Persona[]) => void;
+  onConfirm?: (personas: Persona[], provider?: ProviderId) => void;
   /** Headline shown next to the kanbots crumb. */
   title?: string;
   /** Subhead shown above the persona grid. */
   subtitle?: string;
 }
+
+const PROVIDER_LABELS: Record<ProviderId, string> = {
+  'claude-code': 'Claude',
+  'codex-cli': 'Codex',
+};
 
 export function PersonaPickerModal({
   onClose,
@@ -33,11 +40,41 @@ export function PersonaPickerModal({
   const [draftPrompt, setDraftPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [availableProviders, setAvailableProviders] = useState<ProviderId[]>([]);
+  const [provider, setProvider] = useState<ProviderId | null>(null);
 
   const selectedPersonas = useMemo(
     () => personas.filter((p) => selectedIds.has(p.id)),
     [personas, selectedIds],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const payload = await api.getProviders();
+        if (cancelled) return;
+        const configured = payload.providers
+          .filter((p) => p.enabled && p.hasKey)
+          .map((p) => p.id);
+        setAvailableProviders(configured);
+        if (configured.length >= 2) {
+          const preferred =
+            payload.settings.defaultProvider &&
+            configured.includes(payload.settings.defaultProvider)
+              ? payload.settings.defaultProvider
+              : (configured[0] as ProviderId);
+          setProvider(preferred);
+        }
+      } catch {
+        // best-effort: if providers fail to load, fall back to the default
+        // (no toggle, server picks claude).
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent): void {
@@ -88,13 +125,13 @@ export function PersonaPickerModal({
         return next;
       });
     } else {
-      onPick(created);
+      onPick(created, provider ?? undefined);
     }
   }
 
   function handleCardClick(persona: Persona): void {
     if (!multiSelect) {
-      onPick(persona);
+      onPick(persona, provider ?? undefined);
       return;
     }
     setSelectedIds((prev) => {
@@ -111,10 +148,10 @@ export function PersonaPickerModal({
   function handleConfirm(): void {
     if (!multiSelect || selectedPersonas.length === 0) return;
     if (onConfirm) {
-      onConfirm(selectedPersonas);
+      onConfirm(selectedPersonas, provider ?? undefined);
     } else {
       // Backwards-compat fallback: emit each pick individually.
-      for (const p of selectedPersonas) onPick(p);
+      for (const p of selectedPersonas) onPick(p, provider ?? undefined);
     }
   }
 
@@ -151,8 +188,37 @@ export function PersonaPickerModal({
           <div style={{ padding: '18px 22px' }}>
             <div style={{ marginBottom: 16, color: 'var(--ink-2)', fontSize: 12.5 }}>
               {subtitle ??
-                'Claude will look at your repo and the backlog through the lens you pick. Feature suggestions shift accordingly.'}
+                'The selected agent will look at your repo and the backlog through the lens you pick. Feature suggestions shift accordingly.'}
             </div>
+
+            {availableProviders.length >= 2 && provider ? (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 16,
+                  fontSize: 12.5,
+                }}
+              >
+                <span style={{ color: 'var(--ink-2)' }}>Run with:</span>
+                <div role="radiogroup" aria-label="Suggestion agent" style={{ display: 'flex', gap: 6 }}>
+                  {availableProviders.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="radio"
+                      aria-checked={provider === id}
+                      className={`kb-btn ${provider === id ? 'primary' : 'ghost'}`}
+                      onClick={() => setProvider(id)}
+                      style={{ padding: '4px 10px', fontSize: 12 }}
+                    >
+                      {PROVIDER_LABELS[id]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="kb-persona-grid">
               {personas.map((p) => {

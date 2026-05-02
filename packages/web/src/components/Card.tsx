@@ -86,7 +86,9 @@ function CardBody({
   const decision = active?.pendingDecision ?? null;
   const checks = active?.checks ?? null;
   const stats =
-    active && active.additions !== null && active.deletions !== null
+    active &&
+    typeof active.additions === 'number' &&
+    typeof active.deletions === 'number'
       ? { add: active.additions, del: active.deletions }
       : null;
   const progress = active?.progress ?? null;
@@ -390,10 +392,34 @@ export const Card = memo(CardImpl, (prev, next) => {
   if (a.status !== b.status) return false;
   if (a.labels.length !== b.labels.length) return false;
   if (a.assignees.length !== b.assignees.length) return false;
-  // ActiveRun identity by id and core mutable fields
+  // ActiveRun identity by id and core mutable fields. Include every field the
+  // card body actually renders (branch, checks, decision, preview) so a late
+  // backend update — e.g. branchName landing after status='starting' was first
+  // visible — actually re-renders the card instead of being suppressed here.
   const ra = a.activeRun ?? null;
   const rb = b.activeRun ?? null;
-  if ((ra && rb) ? (ra.id !== rb.id || ra.status !== rb.status || ra.currentTool !== rb.currentTool || ra.currentArg !== rb.currentArg) : ra !== rb) return false;
+  if (ra && rb) {
+    if (
+      ra.id !== rb.id ||
+      ra.status !== rb.status ||
+      ra.branch !== rb.branch ||
+      ra.currentTool !== rb.currentTool ||
+      ra.currentArg !== rb.currentArg ||
+      ra.additions !== rb.additions ||
+      ra.deletions !== rb.deletions ||
+      ra.progress !== rb.progress ||
+      ra.previewUrl !== rb.previewUrl ||
+      ra.previewState !== rb.previewState ||
+      (ra.pendingDecision?.cardId ?? null) !== (rb.pendingDecision?.cardId ?? null) ||
+      ra.checks?.tests !== rb.checks?.tests ||
+      ra.checks?.typecheck !== rb.checks?.typecheck ||
+      ra.checks?.lint !== rb.checks?.lint
+    ) {
+      return false;
+    }
+  } else if (ra !== rb) {
+    return false;
+  }
   // Sentry meta — re-render when status changes (e.g. after analyze)
   const sa = a.sentryMeta ?? null;
   const sb = b.sentryMeta ?? null;

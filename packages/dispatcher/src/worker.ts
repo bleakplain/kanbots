@@ -1,20 +1,17 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { claudeCodeAdapter } from './adapters/claude-code.js';
+import { codexCliAdapter } from './adapters/codex-cli.js';
+import type { AgentCliAdapter } from './adapters/types.js';
 import type { SpawnFn } from './composer.js';
-import {
-  detectRateLimit,
-  makeLineSplitter,
-  parseStreamLine,
-  type StreamEvent,
-} from './stream-parser.js';
+import { makeLineSplitter, type StreamEvent } from './stream-parser.js';
 
-export type AgentRunProvider =
-  | 'claude-code'
-  | 'anthropic'
-  | 'openai'
-  | 'google'
-  | 'deepseek'
-  | 'xai';
+export type AgentRunProvider = 'claude-code' | 'codex-cli';
+
+const ADAPTERS: Partial<Record<AgentRunProvider, AgentCliAdapter>> = {
+  'claude-code': claudeCodeAdapter,
+  'codex-cli': codexCliAdapter,
+};
 
 export interface StartAgentRunOptions {
   cwd: string;
@@ -99,34 +96,30 @@ const IS_WINDOWS = process.platform === 'win32';
 
 export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
   const provider = opts.provider ?? 'claude-code';
-  if (provider !== 'claude-code') {
+  const adapter = ADAPTERS[provider];
+  if (!adapter) {
     throw new UnsupportedProviderForAgentRunError(provider);
   }
-  const command = opts.command ?? 'claude';
+  const command = opts.command ?? adapter.command;
   const spawnFn = opts.spawn ?? nodeSpawn;
 
-  const args = [
-    '-p',
-    '--output-format',
-    'stream-json',
-    '--verbose',
-    '--permission-mode',
-    'bypassPermissions',
-  ];
-  if (opts.resumeFromSessionId) {
-    args.push('--resume', opts.resumeFromSessionId);
-  }
-  if (opts.allowedTools) {
-    args.push('--tools', opts.allowedTools);
-  }
-  if (opts.appendSystemPrompt) {
-    args.push('--append-system-prompt', opts.appendSystemPrompt);
-  }
-  if (opts.model) {
-    args.push('--model', opts.model);
-  }
-  if (opts.extraArgs && opts.extraArgs.length > 0) {
-    args.push(...opts.extraArgs);
+  const args = adapter.buildArgs({
+    ...(opts.resumeFromSessionId !== undefined ? { resumeFromSessionId: opts.resumeFromSessionId } : {}),
+    ...(opts.allowedTools !== undefined ? { allowedTools: opts.allowedTools } : {}),
+    ...(opts.appendSystemPrompt !== undefined ? { appendSystemPrompt: opts.appendSystemPrompt } : {}),
+    ...(opts.model !== undefined ? { model: opts.model } : {}),
+    ...(opts.extraArgs !== undefined ? { extraArgs: opts.extraArgs } : {}),
+  });
+
+  const composedPrompt = adapter.composePrompt
+    ? adapter.composePrompt({
+        ...(opts.appendSystemPrompt !== undefined ? { systemPrompt: opts.appendSystemPrompt } : {}),
+        prompt: opts.prompt,
+      })
+    : opts.prompt;
+
+  if (adapter.promptDelivery === 'argv') {
+    args.push(composedPrompt);
   }
 
   // On POSIX, become a process-group leader so we can signal the entire
@@ -151,7 +144,7 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
   child.stdout?.on('data', (chunk: Buffer) => {
     const lines = splitter(chunk.toString('utf8'));
     for (const line of lines) {
-      const parsed = parseStreamLine(line);
+      const parsed = adapter.parseLine(line);
       for (const ev of parsed) {
         if (ev.kind === 'result') {
           result = {
@@ -170,8 +163,8 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
   child.stderr?.on('data', (chunk: Buffer) => {
     const text = chunk.toString('utf8');
     stderr += text;
-    if (!rateLimitEmitted) {
-      const rl = detectRateLimit(text);
+    if (!rateLimitEmitted && adapter.detectRateLimit) {
+      const rl = adapter.detectRateLimit(text);
       if (rl) {
         rateLimitEmitted = true;
         emitter.emit('event', rl);
@@ -179,9 +172,19 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
     }
   });
 
-  if (child.stdin) {
-    child.stdin.write(opts.prompt);
-    child.stdin.end();
+  switch (adapter.promptDelivery) {
+    case 'stdin':
+      if (child.stdin) {
+        child.stdin.write(composedPrompt);
+        child.stdin.end();
+      }
+      break;
+    case 'argv':
+      // Prompt is already on argv; close stdin so the CLI doesn't block
+      // waiting for it. (codex prints "Reading additional input from
+      // stdin..." otherwise, even when a positional prompt is provided.)
+      child.stdin?.end();
+      break;
   }
 
   function clearEscalation(): void {

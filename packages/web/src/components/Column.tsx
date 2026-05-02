@@ -1,4 +1,5 @@
 import { useDroppable } from '@dnd-kit/core';
+import { useEffect, useState } from 'react';
 import type { Issue, StatusKey } from '../types.js';
 import { Card } from './Card.js';
 import type { RunLiveMap } from '../hooks/useBoardAgentStreams.js';
@@ -35,6 +36,10 @@ const sparkleIcon = (
   </svg>
 );
 
+export type SuggestActivity =
+  | { kind: 'tool'; name: string; summary: string }
+  | { kind: 'thought'; text: string };
+
 export interface ColumnProps {
   columnKey: StatusKey | null;
   status: 'inbox' | StatusKey;
@@ -47,6 +52,8 @@ export interface ColumnProps {
   onAdd?: (status: StatusKey | null) => void;
   onSuggest?: () => void;
   suggesting?: boolean;
+  suggestingActivity?: SuggestActivity[];
+  suggestingStartedAt?: string | null;
 }
 
 export function Column({
@@ -61,6 +68,8 @@ export function Column({
   onAdd,
   onSuggest,
   suggesting = false,
+  suggestingActivity,
+  suggestingStartedAt = null,
 }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: columnDropId(columnKey) });
   return (
@@ -96,7 +105,12 @@ export function Column({
         ) : null}
       </div>
       <div className="kb-col-list">
-        {suggesting ? <SuggestingSkeletonCard /> : null}
+        {suggesting ? (
+          <SuggestingSkeletonCard
+            activity={suggestingActivity ?? []}
+            startedAt={suggestingStartedAt}
+          />
+        ) : null}
         {issues.length === 0 && !suggesting ? (
           <div className="kb-col-empty">—</div>
         ) : (
@@ -125,7 +139,15 @@ export function Column({
   );
 }
 
-function SuggestingSkeletonCard() {
+function SuggestingSkeletonCard({
+  activity,
+  startedAt,
+}: {
+  activity: SuggestActivity[];
+  startedAt: string | null;
+}) {
+  const lastTwo = activity.slice(-2);
+  const elapsed = useElapsedSeconds(startedAt);
   return (
     <div className="kb-card kb-card-skeleton" aria-busy="true" aria-label="Claude is suggesting a feature">
       <div className="kb-card-row1">
@@ -138,6 +160,70 @@ function SuggestingSkeletonCard() {
         <span className="kb-skel kb-skel-pill" />
         <span className="kb-skel kb-skel-pill kb-skel-pill-sm" />
       </div>
+      <div
+        className="mono"
+        style={{
+          marginTop: 8,
+          paddingTop: 8,
+          borderTop: '1px solid var(--hairline-soft)',
+          fontSize: 11,
+          color: 'var(--ink-3)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span
+            style={{
+              display: 'inline-block',
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--running)',
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ flex: 1, color: 'var(--ink-2)' }}>Ideating…</span>
+          {elapsed !== null ? <span>{elapsed}s</span> : null}
+        </div>
+        {lastTwo.length === 0 ? (
+          <div style={{ paddingLeft: 12 }}>starting…</div>
+        ) : (
+          lastTwo.map((ev, i) => (
+            <div
+              key={i}
+              style={{
+                paddingLeft: 12,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              title={formatActivity(ev)}
+            >
+              {formatActivity(ev)}
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
+}
+
+function formatActivity(ev: SuggestActivity): string {
+  if (ev.kind === 'thought') return ev.text;
+  return ev.summary ? `${ev.name} ${ev.summary}` : ev.name;
+}
+
+function useElapsedSeconds(startedAt: string | null): number | null {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!startedAt) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [startedAt]);
+  if (!startedAt) return null;
+  const start = Date.parse(startedAt);
+  if (Number.isNaN(start)) return null;
+  return Math.max(0, Math.floor((now - start) / 1000));
 }

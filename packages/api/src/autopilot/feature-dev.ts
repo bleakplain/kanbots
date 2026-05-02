@@ -38,9 +38,10 @@ export async function runFeatureDevLoop(
 
   const parallelism = clampParallelism(config.parallelism);
   const model = config.model;
+  const provider = config.provider;
   const effort = config.effort;
 
-  log(`session ${initialSession.id}: starting loop with parallelism=${parallelism}, personas=${personas.length}, model=${model ?? 'default'}, effort=${effort ?? 'medium'}`);
+  log(`session ${initialSession.id}: starting loop with parallelism=${parallelism}, personas=${personas.length}, provider=${provider ?? 'default'}, model=${model ?? 'default'}, effort=${effort ?? 'medium'}`);
 
   // Serializes claims of the next persona index so concurrent slots advance
   // cycle_index atomically (single-process JS, so a promise chain is enough).
@@ -52,7 +53,7 @@ export async function runFeatureDevLoop(
   };
 
   const slots = Array.from({ length: parallelism }, (_, slotIndex) =>
-    runSlot(ctx, initialSession.id, slotIndex, claimNextPersona, model, effort, signal),
+    runSlot(ctx, initialSession.id, slotIndex, claimNextPersona, model, provider, effort, signal),
   );
   log(`session ${initialSession.id}: ${slots.length} slot(s) launched`);
   await Promise.all(slots);
@@ -92,6 +93,7 @@ async function runSlot(
   slotIndex: number,
   claimNext: () => Promise<PersonaClaim | null>,
   model: string | undefined,
+  provider: 'claude-code' | 'codex-cli' | undefined,
   effort: AutopilotEffort | undefined,
   signal: AbortSignal,
 ): Promise<void> {
@@ -134,7 +136,7 @@ async function runSlot(
 
     let stepError: Error | null = null;
     try {
-      await runOneIteration(ctx, sessionId, slotIndex, claim.persona, model, effort, signal);
+      await runOneIteration(ctx, sessionId, slotIndex, claim.persona, model, provider, effort, signal);
     } catch (err) {
       stepError = err instanceof Error ? err : new Error(String(err));
       log(`session ${sessionId}: slot ${slotIndex} iteration error: ${stepError.message}`);
@@ -173,6 +175,7 @@ async function runOneIteration(
   slotIndex: number,
   persona: AutopilotPersonaSnapshot,
   model: string | undefined,
+  provider: 'claude-code' | 'codex-cli' | undefined,
   effort: AutopilotEffort | undefined,
   signal: AbortSignal,
 ): Promise<void> {
@@ -184,10 +187,23 @@ async function runOneIteration(
 
   log(`session ${sessionId}: slot ${slotIndex} suggestIssue start (persona "${persona.name}")`);
   const draftStart = Date.now();
-  const drafted = await ctx.suggestIssue({
-    backlog,
-    personaPrompt: persona.prompt,
-  });
+  ctx.planning.start(sessionId, slotIndex, persona.name);
+  const initial = ctx.store.autopilotSessions.findById(sessionId);
+  if (initial) ctx.notify(initial);
+  let drafted;
+  try {
+    drafted = await ctx.suggestIssue({
+      backlog,
+      personaPrompt: persona.prompt,
+      onEvent: (event) => {
+        ctx.planning.append(sessionId, slotIndex, event);
+        const current = ctx.store.autopilotSessions.findById(sessionId);
+        if (current) ctx.notify(current);
+      },
+    });
+  } finally {
+    ctx.planning.clear(sessionId, slotIndex);
+  }
   log(`session ${sessionId}: slot ${slotIndex} suggestIssue done in ${Date.now() - draftStart}ms — "${drafted.title}"`);
   if (signal.aborted) return;
 
@@ -210,6 +226,7 @@ async function runOneIteration(
     threadId: thread.id,
   };
   if (model !== undefined) dispatchArgs.model = model;
+  if (provider !== undefined) dispatchArgs.provider = provider;
   if (effort !== undefined) dispatchArgs.effort = effort;
 
   const run = await dispatchAutopilotChild({ supervisor: ctx.supervisor }, dispatchArgs);

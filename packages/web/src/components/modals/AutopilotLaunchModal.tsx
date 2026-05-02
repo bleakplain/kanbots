@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api.js';
 import { listPersonas, type Persona } from '../../personas.js';
+import { ModelPicker, type ModelPickerValue } from '../forms/ModelPicker.js';
 
 export interface AutopilotLaunchModalProps {
   onClose: () => void;
@@ -8,7 +9,6 @@ export interface AutopilotLaunchModalProps {
 }
 
 type Tab = 'feature-dev' | 'qa';
-type Model = 'opus' | 'sonnet' | 'haiku';
 type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 type Parallelism = 1 | 2 | 3 | 4;
 
@@ -18,7 +18,7 @@ export function AutopilotLaunchModal({ onClose, onStarted }: AutopilotLaunchModa
   const [tab, setTab] = useState<Tab>('feature-dev');
   const [personas, setPersonas] = useState<Persona[]>(() => listPersonas());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [model, setModel] = useState<Model>('opus');
+  const [modelSelection, setModelSelection] = useState<ModelPickerValue | null>(null);
   const [effort, setEffort] = useState<Effort>('medium');
   const [parallelism, setParallelism] = useState<Parallelism>(1);
   const [submitting, setSubmitting] = useState(false);
@@ -61,7 +61,9 @@ export function AutopilotLaunchModal({ onClose, onStarted }: AutopilotLaunchModa
         config: {
           kind: 'feature-dev',
           personas: selected.map((p) => ({ id: p.id, name: p.name, prompt: p.prompt })),
-          model,
+          ...(modelSelection
+            ? { model: modelSelection.model, provider: modelSelection.provider }
+            : {}),
           effort,
           parallelism,
         },
@@ -126,8 +128,8 @@ export function AutopilotLaunchModal({ onClose, onStarted }: AutopilotLaunchModa
                 selectedIds={selectedIds}
                 onToggle={toggle}
                 onPersonasChanged={refreshPersonas}
-                model={model}
-                onModelChange={setModel}
+                modelSelection={modelSelection}
+                onModelChange={setModelSelection}
                 effort={effort}
                 onEffortChange={setEffort}
                 parallelism={parallelism}
@@ -144,7 +146,7 @@ export function AutopilotLaunchModal({ onClose, onStarted }: AutopilotLaunchModa
             <span className="hint">
               {selected.length === 0
                 ? 'Pick one or more personas.'
-                : `Round-robin across ${selected.length} persona${selected.length === 1 ? '' : 's'} · ${parallelism} in parallel · ${effort} effort · ${model}. Runs until you stop it.`}
+                : `Round-robin across ${selected.length} persona${selected.length === 1 ? '' : 's'} · ${parallelism} in parallel · ${effort} effort · ${modelSelection?.model ?? 'default model'}. Runs until you stop it.`}
             </span>
           ) : null}
           <span className="grow" />
@@ -183,7 +185,7 @@ function FeatureDevTab({
   selectedIds,
   onToggle,
   onPersonasChanged,
-  model,
+  modelSelection,
   onModelChange,
   effort,
   onEffortChange,
@@ -194,8 +196,8 @@ function FeatureDevTab({
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onPersonasChanged: () => void;
-  model: Model;
-  onModelChange: (m: Model) => void;
+  modelSelection: ModelPickerValue | null;
+  onModelChange: (m: ModelPickerValue) => void;
   effort: Effort;
   onEffortChange: (e: Effort) => void;
   parallelism: Parallelism;
@@ -212,15 +214,12 @@ function FeatureDevTab({
       >
         <label className="kb-pill-select">
           <span className="lbl">model</span>
-          <select
-            value={model}
-            onChange={(e) => onModelChange(e.target.value as Model)}
+          <ModelPicker
+            value={modelSelection}
+            onChange={onModelChange}
+            agentRunsOnly
             className="kb-pill-select-native mono"
-          >
-            <option value="opus">opus</option>
-            <option value="sonnet">sonnet</option>
-            <option value="haiku">haiku</option>
-          </select>
+          />
           <span className="caret">▾</span>
         </label>
         <label className="kb-pill-select">
