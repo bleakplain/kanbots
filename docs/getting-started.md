@@ -1,58 +1,82 @@
-# Getting started
+# Getting started with KanBots OSS Desktop
 
-This walks through installing kanbots, opening your first workspace, and
+> This is the **OSS desktop edition** — local-first, runs entirely on
+> your machine, no account required. For team collaboration (shared
+> boards, hosted runs, billing for agent usage), see
+> [KanBots Cloud](https://kanbots.dev).
+
+This walks you through downloading the desktop app, getting the
+Claude Code CLI installed, opening your first workspace, and
 dispatching an agent run.
 
-## 1. Prerequisites
+## 1. Download and install
 
-| Requirement | Why |
-| --- | --- |
-| **Node 20+** | Electron main process and tooling |
-| **pnpm 10+** | Workspace manager (the repo is a pnpm monorepo) |
-| **`git`** | Worktree creation, branch ops |
-| **`claude`** on `PATH` | The Claude Code CLI — used for agent runs. Install from <https://docs.claude.com/en/docs/claude-code> and run `claude /login` once. |
-| **`codex`** on `PATH` | (Optional) Codex CLI — alternative agent runtime. |
-| **`gh`** | (Optional) Simplest way to authenticate GitHub mode. |
+Grab the latest build from the
+[GitHub releases page](https://github.com/leodavinci1/kanbots/releases/latest).
+Pick the artifact that matches your platform — file names follow the
+`kanbots-<version>.<ext>` convention:
 
-You need **at least one** of `claude` or `codex` on your `PATH` for
-agents to run. If neither responds to `which`, the Dispatch button
-will fail. Sign in with `claude /login` (or the Codex equivalent)
-ahead of first dispatch — kanbots inherits the environment of the
-process that launches it.
+| Platform | Artifact | Notes |
+| --- | --- | --- |
+| Linux x64 | `kanbots-<version>.AppImage` | `chmod +x` and run, or wire into your launcher |
+| Linux x64 (tarball) | `kanbots-<version>.tar.xz` | Extract anywhere, run `./kanbots` |
+| macOS | _build from source_ | Dev mode works (see below); no packaged build yet |
+| Windows | _build from source_ | Dev mode works (see below); no packaged build yet |
 
-## 2. Install and launch
+> **Linux is the only packaged target right now.** macOS and Windows
+> users can run from source with `pnpm desktop:dev` — see the
+> [build-from-source](#build-from-source-macos--windows) section.
+
+### Build from source (macOS / Windows)
+
+If there's no packaged binary for your platform, you can run kanbots
+from source. You'll need **Node 20+**, **pnpm 10+**, and **git**:
 
 ```sh
 git clone https://github.com/leodavinci1/kanbots
 cd kanbots
 pnpm install
 pnpm desktop          # build everything, open Electron
-```
-
-For development with hot-reload:
-
-```sh
+# or, with hot reload:
 pnpm desktop:dev
 ```
 
-That runs Vite (web), `tsup --watch` (Electron main + preload), and
-`electronmon` against the renderer URL — three coloured streams in one
-terminal.
+## 2. Install Claude Code
 
-## 3. Picking a workspace
+KanBots dispatches agents through the **Claude Code** CLI. Without it
+on your `PATH`, the **Dispatch** button will fail.
 
-The first window is a workspace picker. Browse to any folder that contains
-a git repository and click **Open**. kanbots will:
+1. Install from
+   <https://docs.claude.com/en/docs/claude-code> (KanBots needs
+   Claude Code 1.0+).
+2. Sign in once: `claude /login`.
+3. Verify: `which claude` should print a path; `claude --version`
+   should report a version.
+
+KanBots inherits the environment of whatever launches it, so
+authenticate Claude Code in the same shell (or in your shell rc) that
+your desktop session inherits from.
+
+> Codex is supported as an alternative — install the `codex` CLI and
+> KanBots will offer it per dispatch. You need at least one of
+> `claude` or `codex` available.
+
+## 3. Open KanBots
+
+Launching the app drops you on the **workspace picker**. Browse to
+any folder that contains a git repository and click **Open**.
+
+On first open, KanBots will:
 
 1. Resolve the git toplevel via `git rev-parse --show-toplevel`.
-2. Create `.kanbots/` next to it (`db.sqlite`, `worktrees/`,
-   `config.json`).
-3. Detect whether the repo has a GitHub remote (`origin`). If yes, the
-   picker offers **GitHub mode**; if no, it falls back to **Local mode**.
+2. Create `.kanbots/` next to it (`db.sqlite`, `config.json`,
+   `worktrees/`, etc.).
+3. Detect a GitHub remote. If `origin` exists, you can pick **GitHub
+   mode**; otherwise it falls back to **Local mode**.
 
-You can revisit and switch modes later from the workspace settings.
+You can switch modes later from workspace settings.
 
-## 4. What gets written to disk
+### Where things live on disk
 
 ```
 <your-repo>/
@@ -68,84 +92,101 @@ You can revisit and switch modes later from the workspace settings.
     └── promote/               # staging when promoting a worktree
 ```
 
-`db.sqlite` is the source of truth for everything except the source code
-itself. Add `.kanbots/` to `.gitignore` unless you have a reason not to —
-the app prompts to do this on first open.
+`db.sqlite` is the source of truth for everything except your source
+code. Add `.kanbots/` to `.gitignore` — the app prompts to do this on
+first open.
 
 Nothing is written outside the workspace folder.
 
-## 5. The first card
+## 4. Add a card and dispatch
 
-Click **+ New task** in the top right. Pick a template (Bug fix,
-Feature, Refactor, Review, Spike), write a description, and choose how
-the card should start:
+1. Click **+ New task** in the top right.
+2. Pick a template (Bug fix, Feature, Refactor, Review, Spike), write
+   a description, and pick how the card should start:
+   - **Spec first** — runs `/spec` on a fresh worktree and waits for
+     your approval on refined acceptance criteria before
+     implementation.
+   - **Create & dispatch** — spawns an agent immediately on a fresh
+     worktree.
+   - **Queue for later** — sits in Backlog until you start it.
+3. Pick the agent CLI (`claude (auto)` defaults to Claude Code; you
+   can switch to Codex per dispatch), the model, and the effort.
 
-- **Spec first** — runs `/spec` on a fresh worktree and waits for your
-  approval on the refined acceptance criteria before any
-  implementation work.
-- **Create & dispatch** — spawns an agent immediately on a fresh
-  worktree.
-- **Queue for later** — sits in Backlog; you start it manually.
+   ![New task modal](assets/new-task-modal.png)
 
-Pick which agent CLI handles the run (`claude (auto)` defaults to
-Claude Code; switch to Codex per dispatch), the model, and the
-effort.
+4. In **Local mode** the card lands as a row in `local_issues`. In
+   **GitHub mode** it's posted as a real issue on the repo.
 
-![New task modal](assets/new-task-modal.png)
+### Your first agent run
 
-*The right rail previews how the card will appear on the board,
-including the worktree branch (`kanbots/issue-N`) it'll create.*
-
-In **Local mode**, the card lands as a row in `local_issues`.
-In **GitHub mode**, it's posted as a real issue on the repo.
-
-Drag a card between columns to change its status. In GitHub mode the
-move is reflected as `status:*` label edits on the issue.
-
-## 6. Your first agent run
-
-1. Open a card, click **Dispatch**.
+1. Open the card and click **Dispatch**.
 2. Pick an agent identity (Claude Code or Codex) and a model. Confirm.
-3. kanbots creates `.kanbots/worktrees/issue-<n>-<runId>/`, branches it
-   from your default branch, and spawns the chosen CLI against it.
+3. KanBots creates `.kanbots/worktrees/issue-<n>-<runId>/`, branches
+   it from your default branch, and spawns the chosen CLI against it.
 4. The detail panel switches to the live thread. Every `tool_use` and
    `tool_result` streams in.
-5. If the agent asks for permission, a decision card appears. Click an
-   option; the run resumes with that choice.
-6. When the run finishes:
-   - **Branch preview** starts the worktree's dev server (whatever your
-     `package.json` `dev` script does) and shows you the URL.
-   - **Promote commit** rebases the worktree's tip onto your branch.
-   - **Open draft PR** (GitHub mode only) pushes and opens a draft.
-   - **Discard** removes the worktree and branch.
+5. If the agent asks for permission, a decision card appears. Click
+   an option; the run resumes with that choice.
+6. When the run finishes, you can:
+   - **Branch preview** — start the worktree's dev server and open
+     a live URL.
+   - **Promote commit** — rebase the worktree's tip onto your branch.
+   - **Open draft PR** (GitHub mode only) — push and open a draft PR.
+   - **Discard** — remove the worktree and branch.
+
+   ![Run detail showing an awaiting-decision prompt](assets/run-detail-awaiting-decision.png)
 
 A pre-push hook is installed in every worktree, so even if the agent
 runs `git push`, it will fail. Promotion is always an explicit user
 step.
 
-![Run detail showing an awaiting-decision prompt](assets/run-detail-awaiting-decision.png)
+## Troubleshooting
 
-*Anatomy of a run: header (Stop / Fork run / Open preview / Archive),
-the live agent thread on the left, run stats and worktree info on the
-right, slash-command-aware reply box at the bottom.*
+### "Dispatch failed: claude not found" (Claude Code not installed)
 
-## 7. Try parallel + autopilot
+KanBots couldn't locate the `claude` binary on your `PATH`.
 
-Once one run feels right, scale up:
+- Check from a terminal: `which claude` should print a path.
+- If empty, install Claude Code:
+  <https://docs.claude.com/en/docs/claude-code>.
+- After installing, sign in once: `claude /login`.
+- If `which claude` works in your terminal but the app still fails,
+  the desktop launcher is using a different `PATH`. Restart KanBots
+  from the same shell where `claude` resolves, or add the install
+  directory to your shell rc (e.g. `~/.zshrc`, `~/.bashrc`,
+  `~/.config/fish/config.fish`) and log out / back in.
 
-- **Parallel runs across the board** — dispatch on multiple cards at
-  once. Each agent gets its own worktree and runs independently;
-  watch the board light up.
-- **Autopilot on a single issue** — open a card, click **Autopilot**,
-  pick personas + parallelism (up to 4). Slots round-robin through
-  personas; agents split the issue into subtasks and the orchestrator
-  walks through them until you stop or the cost budget hits.
+### "Not a git repository" (repo not cloned locally)
 
-See [agents.md → Autopilot](agents.md#autopilot) for the full
-configuration.
+KanBots only opens **folders that contain a git repository** — it
+runs `git rev-parse --show-toplevel` to find the project root and
+creates worktrees relative to it. If the picker rejects a folder:
 
-## 8. Next steps
+- Make sure you cloned the repo and picked the cloned folder
+  (`git clone https://github.com/<owner>/<repo>`), not a download
+  zip.
+- If the folder _is_ a clone, run `git status` inside it from a
+  terminal to confirm — submodules and shallow clones are fine.
+- If you want to start a brand-new project: `git init` in an empty
+  folder before pointing KanBots at it.
+
+### "Port 8474 already in use" (dispatcher port conflict)
+
+The local dispatcher binds to port **8474** for streaming agent
+output to the renderer. If another process already holds it, agent
+runs won't start.
+
+- Find what's holding the port:
+  - Linux / macOS: `lsof -i :8474` or `ss -ltnp 'sport = :8474'`.
+  - Windows: `netstat -ano | findstr 8474`.
+- Often it's a stale KanBots from a previous session. Kill that
+  process and relaunch.
+- If you need a different port, set `KANBOTS_DISPATCHER_PORT=<port>`
+  in the environment KanBots inherits, then relaunch.
+
+## Next steps
 
 - Set up GitHub auth properly: [issues.md](issues.md#github-mode)
 - Wire the MCP server into Cursor: [mcp-server.md](mcp-server.md)
 - Set per-run cost budgets: [configuration.md](configuration.md#cost-budgets)
+- Try parallel runs and Autopilot: [agents.md → Autopilot](agents.md#autopilot)
