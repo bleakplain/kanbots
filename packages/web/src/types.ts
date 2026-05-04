@@ -40,6 +40,7 @@ export type {
   CheckKind,
   Comment,
   Config,
+  CostBreakdownItem,
   CreateIssueInput,
   DecisionPayload,
   DiffFile,
@@ -72,6 +73,7 @@ export type {
   WorkspaceBudgets,
   WorkspaceFolderPayload,
   WorkspaceHouseRules,
+  CostBreakdownItem,
 } from '@kanbots/api';
 
 // User shape isn't in @kanbots/api directly — it's the inline type on

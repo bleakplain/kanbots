@@ -248,6 +248,25 @@ export class AgentRunsRepo {
     return row.sum;
   }
 
+  sumCostByWorkspaceAndProvider(): Array<{ workspace: string; provider: string; totalUsd: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT t.repo_owner, t.repo_name, ar.provider, SUM(ar.total_cost_usd) as total_usd
+         FROM agent_runs ar
+         JOIN threads t ON ar.thread_id = t.id
+         WHERE ar.total_cost_usd IS NOT NULL
+         GROUP BY t.repo_owner, t.repo_name, ar.provider
+         ORDER BY total_usd DESC`
+      )
+      .all() as Array<{ repo_owner: string; repo_name: string; provider: string | null; total_usd: number }>;
+
+    return rows.map((r) => ({
+      workspace: `${r.repo_owner}/${r.repo_name}`,
+      provider: r.provider || 'unknown',
+      totalUsd: r.total_usd,
+    }));
+  }
+
   listActive(): Array<AgentRun & { issueNumber: number }> {
     const rows = this.db
       .prepare(

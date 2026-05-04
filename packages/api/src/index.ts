@@ -78,6 +78,7 @@ export type {
   Comment,
   Config,
   CooldownStatePayload,
+  CostBreakdownItem,
   CreateIssueInput,
   DecisionPayload,
   DecoratedIssue,

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { CostTodayResult, CostUsageResult, CostUsageWindow } from '../bridge.js';
+import type { CostTodayResult, CostUsageResult, CostUsageWindow, CostBreakdownItem } from '../bridge.js';
 import type { HandlerDeps } from './types.js';
 
 function startOfTodayIso(): string {
@@ -14,6 +14,10 @@ export async function today(deps: HandlerDeps): Promise<CostTodayResult> {
   const since = startOfTodayIso();
   const totalUsd = deps.store.agentRuns.sumCostSince(since);
   return { totalUsd, since };
+}
+
+export async function breakdown(deps: HandlerDeps): Promise<CostBreakdownItem[]> {
+  return deps.store.agentRuns.sumCostByWorkspaceAndProvider();
 }
 
 // Same data Claude Code's statusLine shows under `rate_limits.{five_hour,seven_day}`.

@@ -370,6 +370,12 @@ export interface CostTodayResult {
   since: string;
 }
 
+export interface CostBreakdownItem {
+  workspace: string;
+  provider: string;
+  totalUsd: number;
+}
+
 // Same shape Claude Code's `statusLine` JSON exposes under
 // `rate_limits.{five_hour,seven_day}.used_percentage`. Sourced from the
 // authenticated OAuth `/usage` endpoint so the values match claude.ai's
@@ -592,6 +598,7 @@ export interface BridgeChannels {
   'decisions:pending': { args: void; result: PendingDecisionPayload[] };
   'cost:today': { args: void; result: CostTodayResult };
   'cost:usage': { args: void; result: CostUsageResult };
+  'cost:breakdown': { args: void; result: CostBreakdownItem[] };
   'cooldown:get': { args: void; result: CooldownStatePayload };
   'workspace:get': { args: void; result: Workspace };
   'workspace:get-budgets': { args: void; result: WorkspaceBudgets };

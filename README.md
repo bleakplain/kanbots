@@ -36,6 +36,30 @@
 effort, and model. Slots round-robin through personas; agents split
 the issue into subtasks as they go.*
 
+## Sustained by donations
+
+KanBots OSS is free, MIT-licensed, and sustained by pay-what-you-can
+donations. If KanBots saves you time, please consider chipping in via
+[GitHub Sponsors](https://github.com/sponsors/<TBD-sponsors-handle>),
+[Open Collective](https://opencollective.com/<TBD-collective-slug>),
+or [Polar](https://polar.sh/<TBD-polar-org>). Any amount helps. No
+tier unlocks anything; donations just keep the project healthy.
+
+The placeholder URLs above mirror [`.github/FUNDING.yaml`](.github/FUNDING.yaml)
+and will be filled in once the maintainer accounts are live. For the
+full donations philosophy, see [docs/monetization.md](docs/monetization.md).
+Want to know why we ship two products? See
+[docs/why-two-products.md](docs/why-two-products.md).
+
+### Working on a team?
+
+**[KanBots Cloud](https://kanbots.dev)** adds real-time collaboration,
+multi-user boards, and managed agent infrastructure — same UI, paid
+tier. The OSS desktop stays free forever.
+
+Read more about the two-product split:
+[docs/why-two-products.md](docs/why-two-products.md).
+
 ## Highlights
 
 - **Kanban with five columns** (Backlog → Done) plus an Inbox for

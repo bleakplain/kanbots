@@ -297,6 +297,8 @@ export const api = {
     invoke('cost:today', undefined),
   costUsage: (): Promise<ChannelResult<'cost:usage'>> =>
     invoke('cost:usage', undefined),
+  costBreakdown: (): Promise<ChannelResult<'cost:breakdown'>> =>
+    invoke('cost:breakdown', undefined),
   resolveCard: (cardId: number, value: string): Promise<ResolveCardResult> =>
     invoke('cards:resolve', { cardId, value }),
   dismissCard: (cardId: number): Promise<DismissCardResult> =>

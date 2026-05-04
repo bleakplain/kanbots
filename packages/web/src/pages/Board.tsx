@@ -18,6 +18,7 @@ import { PersonaPickerModal } from '../components/modals/PersonaPickerModal.js';
 import { HouseRulesSettingsModal } from '../components/modals/HouseRulesSettingsModal.js';
 import { ProvidersSettingsModal } from '../components/modals/ProvidersSettingsModal.js';
 import { SentrySettingsModal } from '../components/modals/SentrySettingsModal.js';
+import { Stats } from '../components/Stats.js';
 import { useBoardAgentStreams } from '../hooks/useBoardAgentStreams.js';
 import { useBoardFilters } from '../hooks/useBoardFilters.js';
 import { useFetch } from '../hooks/useFetch.js';
@@ -168,6 +169,7 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
   const [sentrySettingsOpen, setSentrySettingsOpen] = useState(false);
   const [providersSettingsOpen, setProvidersSettingsOpen] = useState(false);
   const [houseRulesOpen, setHouseRulesOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useSelection();
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -363,6 +365,14 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
           <button
             type="button"
             className="kb-btn ghost"
+            onClick={() => setStatsOpen(true)}
+            title="View cost tracking stats"
+          >
+            Stats
+          </button>
+          <button
+            type="button"
+            className="kb-btn ghost"
             onClick={() => setProvidersSettingsOpen(true)}
             title="AI providers"
             aria-label="AI providers"
@@ -546,6 +556,9 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
       ) : null}
       {houseRulesOpen ? (
         <HouseRulesSettingsModal onClose={() => setHouseRulesOpen(false)} />
+      ) : null}
+      {statsOpen ? (
+        <Stats onClose={() => setStatsOpen(false)} />
       ) : null}
     </DndContext>
   );

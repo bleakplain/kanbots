@@ -99,6 +99,7 @@ export function createHandlers(opts: CreateHandlersOptions): Handlers {
     'decisions:pending': () => decisions.pending(deps),
     'cost:today': () => cost.today(deps),
     'cost:usage': () => cost.usage(deps),
+    'cost:breakdown': () => cost.breakdown(deps),
     'cooldown:get': () => cooldown.get(deps),
     'workspace:get': () => workspace.getWorkspace(deps),
     'workspace:get-budgets': () => workspace.getBudgets(deps),
