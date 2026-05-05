@@ -214,6 +214,8 @@ package's build pipeline is:
 `pnpm desktop:dev` runs Vite + tsup --watch + electronmon concurrently
 for HMR development.
 
-`pnpm package` runs electron-builder against the Linux targets
-(AppImage + tar.xz). No macOS/Windows builds are configured — those work
-in dev mode but aren't packaged from this repo.
+`pnpm package` runs electron-builder for the host platform. Platform-specific
+recipes (`package:linux`, `package:mac`, `package:win`) cover AppImage + tar.xz
+on Linux, dmg + zip (arm64 + x64) on macOS, and an NSIS installer on Windows.
+Cross-host packaging is not supported because `ensure:native` fetches the
+better-sqlite3 prebuild for the host's platform/arch.

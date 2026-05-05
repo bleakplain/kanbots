@@ -87,17 +87,30 @@ once a number is committed, never edit it; add a new one instead.
 
 ## Packaging
 
-Linux only, two targets:
+`electron-builder` config is in `packages/desktop/package.json`.
+Recipes are configured for Linux, macOS, and Windows:
 
 ```sh
-pnpm package          # → release/kanbots-<version>.AppImage
-                      # → release/kanbots-<version>.tar.xz
+pnpm package          # → host platform (whatever you're running on)
+pnpm package:linux    # → release/kanbots-<version>-linux-x64.AppImage
+                      # → release/kanbots-<version>-linux-x64.tar.xz
+pnpm package:mac      # → release/kanbots-<version>-mac-{arm64,x64}.{dmg,zip}
+pnpm package:win      # → release/kanbots-<version>-win-x64.exe (NSIS)
 pnpm package:dir      # unpacked dir (faster for testing)
 ```
 
-`electron-builder` config is in `packages/desktop/package.json`.
-There's nothing for macOS or Windows yet — they work in dev mode but
-no packaging recipes are in this repo.
+The `release:linux` / `release:mac` / `release:win` scripts run the same
+builds with `--publish never` (the `publish` block is wired to a GitHub
+draft release, but local runs stay local). See
+[releasing.md](releasing.md) for the actual release flow.
+
+Per-arch native modules: a `beforePack` hook
+(`scripts/before-pack.cjs`) fetches the matching `better-sqlite3`
+prebuild for each target arch electron-builder is about to package, so
+the dual-arch macOS dmg/zip artifacts each ship the correct
+`.node`. Cross-OS packaging (e.g. building a signed mac dmg on Linux)
+still has to run on the matching host — the prebuild swap is only the
+native-module half of the problem.
 
 ## Layout reminder
 

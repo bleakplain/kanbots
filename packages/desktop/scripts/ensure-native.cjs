@@ -13,6 +13,19 @@ const sqliteVersion = require(sqlitePkgPath).version;
 const binPath = join(sqliteDir, 'build', 'Release', 'better_sqlite3.node');
 const prebuildInstall = require.resolve('prebuild-install/bin.js', { paths: [sqliteDir] });
 
+function parseArgs(argv) {
+  const out = {};
+  for (const arg of argv) {
+    const m = /^--([^=]+)=(.*)$/.exec(arg);
+    if (m) out[m[1]] = m[2];
+  }
+  return out;
+}
+
+const args = parseArgs(process.argv.slice(2));
+const targetPlatform = args.platform ?? process.platform;
+const targetArch = args.arch ?? process.arch;
+
 function fingerprint() {
   const binHash = existsSync(binPath)
     ? createHash('sha256').update(readFileSync(binPath)).digest('hex')
@@ -20,8 +33,8 @@ function fingerprint() {
   return [
     `electron@${electronVersion}`,
     `better-sqlite3@${sqliteVersion}`,
-    process.platform,
-    process.arch,
+    targetPlatform,
+    targetArch,
     `bin:${binHash}`,
   ].join(' ');
 }
@@ -32,7 +45,9 @@ if (existsSync(marker) && readFileSync(marker, 'utf-8').trim() === fingerprint()
   process.exit(0);
 }
 
-console.log(`[ensure-native] fetching better-sqlite3 prebuild for Electron ${electronVersion}…`);
+console.log(
+  `[ensure-native] fetching better-sqlite3 prebuild for Electron ${electronVersion} (${targetPlatform}/${targetArch})…`,
+);
 
 const result = spawnSync(
   process.execPath,
@@ -40,8 +55,8 @@ const result = spawnSync(
     prebuildInstall,
     `--runtime=electron`,
     `--target=${electronVersion}`,
-    `--arch=${process.arch}`,
-    `--platform=${process.platform}`,
+    `--arch=${targetArch}`,
+    `--platform=${targetPlatform}`,
   ],
   { cwd: sqliteDir, stdio: 'inherit' },
 );

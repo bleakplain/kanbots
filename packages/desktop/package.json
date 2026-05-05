@@ -17,7 +17,7 @@
     "package:linux": "pnpm ensure:native && pnpm build && electron-builder --linux",
     "package:mac": "pnpm ensure:native && pnpm build && electron-builder --mac",
     "package:win": "pnpm ensure:native && pnpm build && electron-builder --win",
-    "package:dir": "pnpm build && electron-builder --dir",
+    "package:dir": "pnpm ensure:native && pnpm build && electron-builder --dir",
     "release:linux": "pnpm ensure:native && pnpm build && electron-builder --linux --publish never",
     "release:mac": "pnpm ensure:native && pnpm build && electron-builder --mac --publish never",
     "release:win": "pnpm ensure:native && pnpm build && electron-builder --win --publish never",
@@ -57,6 +57,7 @@
     "appId": "io.kanbots.desktop",
     "productName": "kanbots",
     "executableName": "kanbots",
+    "beforePack": "./scripts/before-pack.cjs",
     "asar": true,
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**/*",
