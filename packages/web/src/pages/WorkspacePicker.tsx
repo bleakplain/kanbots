@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getBridge, type RecentWorkspace } from '../desktop-bridge.js';
+import { Logo } from '../components/Logo.js';
 
 export function WorkspacePicker({
   initialRecents,
@@ -49,7 +50,9 @@ export function WorkspacePicker({
   return (
     <div className="picker">
       <div className="picker-card">
-        <h1 className="picker-title">kanbots</h1>
+        <h1 className="picker-title">
+          <Logo size={28} withWordmark />
+        </h1>
         <p className="picker-sub">Pick a project folder to open its workspace.</p>
         <button
           type="button"

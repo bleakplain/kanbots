@@ -1,3 +1,4 @@
+import { Logo } from '../Logo.js';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent } from 'react';
 import { api } from '../../api.js';
 
@@ -81,9 +82,7 @@ export function HouseRulesSettingsModal({ onClose }: HouseRulesSettingsModalProp
     >
       <div className="kb-modal kb-sentry-modal" onClick={stopInner}>
         <div className="kb-modal-head">
-          <span className="crumb-chip">
-            <b>kanbots</b>
-          </span>
+          <Logo size={11} withWordmark />
           <span style={{ color: 'var(--ink-4)' }}>·</span>
           <h2>House rules</h2>
           <span className="grow" />

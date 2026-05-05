@@ -1,3 +1,4 @@
+import { Logo } from '../Logo.js';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api.js';
 import { createPersona, deletePersona, listPersonas, type Persona } from '../../personas.js';
@@ -164,9 +165,7 @@ export function PersonaPickerModal({
     <div className="kb-modal-scrim kb-app" onClick={onClose} role="dialog" aria-modal="true">
       <div className="kb-modal sm" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
         <div className="kb-modal-head">
-          <span className="crumb-chip">
-            <b>kanbots</b>
-          </span>
+          <Logo size={11} withWordmark />
           <span style={{ color: 'var(--ink-4)' }}>·</span>
           <h2>{title ?? 'Pick a perspective'}</h2>
           <span className="grow" />

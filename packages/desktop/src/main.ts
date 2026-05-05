@@ -96,6 +96,11 @@ let activeWorkspace: ActiveWorkspace | null = null;
 let mainWindow: BrowserWindow | null = null;
 const chatWindows = new Set<BrowserWindow>();
 
+function appIconOption(): { icon: string } | Record<string, never> {
+  const candidate = join(__dirname, 'icon.png');
+  return existsSync(candidate) ? { icon: candidate } : {};
+}
+
 function findWebContentsForOwner(ownerId: number | undefined): Electron.WebContents | null {
   if (ownerId === undefined) {
     return mainWindow?.webContents ?? null;
@@ -803,6 +808,7 @@ async function createWindow(): Promise<void> {
     width: 1200,
     height: 800,
     title: 'kanbots',
+    ...appIconOption(),
     frame: false,
     titleBarStyle: 'hidden',
     autoHideMenuBar: true,
@@ -835,6 +841,7 @@ async function createChatWindow(conversationId: number | null): Promise<BrowserW
     width: 880,
     height: 760,
     title: 'kanbots chat',
+    ...appIconOption(),
     frame: false,
     titleBarStyle: 'hidden',
     autoHideMenuBar: true,

@@ -1,3 +1,4 @@
+import { Logo } from '../Logo.js';
 import {
   useEffect,
   useRef,
@@ -153,9 +154,7 @@ export function TaskDetailModal({ issueNumber, onClose }: TaskDetailModalProps) 
     <div className="kb-modal-scrim kb-app" onClick={onClose} role="dialog" aria-modal="true">
       <div className="kb-modal" onClick={stopInner}>
         <div className="kb-modal-head">
-          <span className="crumb-chip">
-            <b>kanbots</b>
-          </span>
+          <Logo size={11} withWordmark />
           <span style={{ color: 'var(--ink-4)' }}>·</span>
           <span className="num">#{issueNumber}</span>
           <h2>{issue?.title ?? (loading ? 'Loading…' : 'Issue')}</h2>

@@ -1,3 +1,7 @@
+<p align="left">
+  <img src="docs/assets/brand/kanbots-icon-256.png" alt="kanbots" width="96" height="96">
+</p>
+
 # kanbots
 
 > **A kanban board that runs Claude Code and Codex agents in parallel.**

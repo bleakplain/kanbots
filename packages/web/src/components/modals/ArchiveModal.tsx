@@ -1,3 +1,4 @@
+import { Logo } from '../Logo.js';
 import {
   useEffect,
   useMemo,
@@ -131,9 +132,7 @@ export function ArchiveModal({ onClose, onOpenDetail }: ArchiveModalProps) {
     >
       <div className="kb-modal kb-archive-modal" onClick={stopInner}>
         <div className="kb-modal-head">
-          <span className="crumb-chip">
-            <b>kanbots</b>
-          </span>
+          <Logo size={11} withWordmark />
           <span style={{ color: 'var(--ink-4)' }}>·</span>
           <h2>Archive</h2>
           <span className="grow" />

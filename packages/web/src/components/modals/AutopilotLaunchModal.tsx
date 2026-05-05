@@ -1,3 +1,4 @@
+import { Logo } from '../Logo.js';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api.js';
 import { listPersonas, type Persona } from '../../personas.js';
@@ -81,9 +82,7 @@ export function AutopilotLaunchModal({ onClose, onStarted }: AutopilotLaunchModa
     <div className="kb-modal-scrim kb-app" onClick={onClose} role="dialog" aria-modal="true">
       <div className="kb-modal sm" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760 }}>
         <div className="kb-modal-head">
-          <span className="crumb-chip">
-            <b>kanbots</b>
-          </span>
+          <Logo size={11} withWordmark />
           <span style={{ color: 'var(--ink-4)' }}>·</span>
           <h2>Start an autopilot</h2>
           <span className="grow" />

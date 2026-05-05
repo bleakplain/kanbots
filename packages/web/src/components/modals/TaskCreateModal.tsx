@@ -1,3 +1,4 @@
+import { Logo } from '../Logo.js';
 import {
   useCallback,
   useEffect,
@@ -329,9 +330,7 @@ export function TaskCreateModal({
     <div className="kb-modal-scrim kb-app" onClick={onClose} role="dialog" aria-modal="true">
       <div className="kb-modal" onClick={(e) => e.stopPropagation()}>
         <div className="kb-modal-head">
-          <span className="crumb-chip">
-            <b>kanbots</b>
-          </span>
+          <Logo size={11} withWordmark />
           <span style={{ color: 'var(--ink-4)' }}>·</span>
           <h2>New task</h2>
           <span className="grow" />

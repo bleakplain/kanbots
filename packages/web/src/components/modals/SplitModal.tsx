@@ -1,3 +1,4 @@
+import { Logo } from '../Logo.js';
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { api } from '../../api.js';
 import { dispatchIssuesRefetch } from '../../hooks/useIssues.js';
@@ -82,9 +83,7 @@ export function SplitModal({ parentNumber, parentTitle, onClose, onSplit }: Spli
     <div className="kb-modal-scrim kb-app" onClick={onClose} role="dialog" aria-modal="true">
       <div className="kb-modal sm" onClick={(e) => e.stopPropagation()}>
         <div className="kb-modal-head">
-          <span className="crumb-chip">
-            <b>kanbots</b>
-          </span>
+          <Logo size={11} withWordmark />
           <span style={{ color: 'var(--ink-4)' }}>·</span>
           <span className="num">#{parentNumber}</span>
           <h2>Split into sub-tasks</h2>
