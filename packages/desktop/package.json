@@ -5,11 +5,12 @@
   "description": "kanbots desktop app (Electron)",
   "main": "./dist/main.cjs",
   "scripts": {
+    "build:deps": "pnpm --filter \"@kanbots/desktop^...\" build",
     "build:main": "tsup",
     "build:web": "pnpm --filter @kanbots/web build",
     "copy:web": "node scripts/copy-web.cjs",
     "ensure:native": "node scripts/ensure-native.cjs",
-    "build": "pnpm build:web && pnpm build:main && pnpm copy:web",
+    "build": "pnpm build:deps && pnpm build:main && pnpm copy:web",
     "dev": "pnpm ensure:native && concurrently -k -n web,main,electron -c blue,yellow,magenta \"pnpm --filter @kanbots/web dev\" \"tsup --watch\" \"wait-on http://127.0.0.1:5173 ./dist/main.cjs && KANBOTS_RENDERER_URL=http://127.0.0.1:5173 electronmon ./dist/main.cjs\"",
     "launch": "pnpm ensure:native && pnpm build && electron ./dist/main.cjs",
     "package": "pnpm ensure:native && pnpm build && electron-builder",
@@ -17,7 +18,9 @@
     "package:mac": "pnpm ensure:native && pnpm build && electron-builder --mac",
     "package:win": "pnpm ensure:native && pnpm build && electron-builder --win",
     "package:dir": "pnpm build && electron-builder --dir",
-    "release": "pnpm ensure:native && pnpm build && electron-builder --publish always",
+    "release:linux": "pnpm ensure:native && pnpm build && electron-builder --linux --publish always",
+    "release:mac": "pnpm ensure:native && pnpm build && electron-builder --mac --publish always",
+    "release:win": "pnpm ensure:native && pnpm build && electron-builder --win --publish always",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

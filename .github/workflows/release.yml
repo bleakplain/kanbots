@@ -81,7 +81,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # electron-builder also looks for this name on some paths.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm --filter @kanbots/desktop run release -- --linux
+        run: pnpm --filter @kanbots/desktop run release:linux
 
       - name: Build & publish (macOS)
         if: matrix.os == 'macos-latest'
@@ -90,14 +90,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Skip notarization (unsigned builds).
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: pnpm --filter @kanbots/desktop run release -- --mac
+        run: pnpm --filter @kanbots/desktop run release:mac
 
       - name: Build & publish (Windows)
         if: matrix.os == 'windows-latest'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm --filter @kanbots/desktop run release -- --win
+        run: pnpm --filter @kanbots/desktop run release:win
 
       - name: Upload build artifacts (workflow inspection)
         if: always()
