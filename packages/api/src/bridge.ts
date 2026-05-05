@@ -21,6 +21,7 @@ import type {
   CardType,
   ChatConversation,
   CheckKind,
+  DiffHunk,
   Learning,
   Message,
   PreviewState,
@@ -64,6 +65,7 @@ export type {
   CardType,
   ChatConversation,
   CheckKind,
+  DiffHunk,
   Learning,
   Message,
   PreviewState,
@@ -754,6 +756,10 @@ export interface BridgeChannels {
       minRuns?: number;
     };
     result: FrontierPoint[];
+  };
+  'agent-runs:hunks:list': {
+    args: { runId: number };
+    result: DiffHunk[];
   };
 }
 

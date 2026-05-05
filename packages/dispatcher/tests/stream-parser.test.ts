@@ -230,3 +230,78 @@ describe('makeLineSplitter', () => {
     expect(split('a\n\n\nb\n')).toEqual(['a', 'b']);
   });
 });
+
+describe('diff_hunk synthesis from tool_use', () => {
+  function streamFor(toolName: string, input: Record<string, unknown>): unknown[] {
+    return parseStreamLine(
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', id: 'toolu_x', name: toolName, input },
+          ],
+        },
+      }),
+    );
+  }
+
+  it('emits an Edit-derived diff_hunk alongside the tool_use', () => {
+    const events = streamFor('Edit', {
+      file_path: 'src/foo.ts',
+      old_string: 'const x = 1;',
+      new_string: 'const x = 2;',
+    });
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ kind: 'tool_use', name: 'Edit' });
+    expect(events[1]).toMatchObject({
+      kind: 'diff_hunk',
+      mode: 'edit',
+      filePath: 'src/foo.ts',
+      opIndex: 0,
+      before: 'const x = 1;',
+      after: 'const x = 2;',
+    });
+  });
+
+  it('emits a Write-derived hunk with null before', () => {
+    const events = streamFor('Write', {
+      file_path: 'src/new.ts',
+      content: 'export const x = 1;\n',
+    });
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      kind: 'diff_hunk',
+      mode: 'write',
+      before: null,
+      after: 'export const x = 1;\n',
+    });
+  });
+
+  it('expands MultiEdit into one hunk per op', () => {
+    const events = streamFor('MultiEdit', {
+      file_path: 'src/multi.ts',
+      edits: [
+        { old_string: 'a', new_string: 'b' },
+        { old_string: 'c', new_string: 'd' },
+        { old_string: 'e', new_string: 'f' },
+      ],
+    });
+    // 1 tool_use + 3 hunks
+    expect(events).toHaveLength(4);
+    const hunks = events.slice(1) as Array<{ kind: string; opIndex: number; mode: string }>;
+    expect(hunks.map((h) => h.opIndex)).toEqual([0, 1, 2]);
+    expect(hunks.every((h) => h.mode === 'multiedit_op')).toBe(true);
+  });
+
+  it('does not synthesize hunks for non-edit tools', () => {
+    const events = streamFor('Read', { file_path: '/tmp/x.txt' });
+    expect(events).toHaveLength(1);
+    expect((events[0] as { kind: string }).kind).toBe('tool_use');
+  });
+
+  it('skips a malformed Edit (missing fields)', () => {
+    const events = streamFor('Edit', { file_path: 'src/foo.ts' });
+    // tool_use still emits but no hunk synthesised
+    expect(events).toHaveLength(1);
+  });
+});

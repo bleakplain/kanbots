@@ -29,7 +29,29 @@ export type StreamEvent =
       retryAfterMs: number | null;
       message: string;
     }
-  | { kind: 'parse_error'; raw: string; message: string };
+  | { kind: 'parse_error'; raw: string; message: string }
+  /**
+   * One agent edit, derived from Edit/Write/MultiEdit tool_use payloads.
+   * Emitted *alongside* (not instead of) the underlying `tool_use` event so
+   * downstream consumers — containment, cost tracking, the existing
+   * timeline — keep working unchanged. The `toolUseId` ties a hunk back to
+   * its originating tool_use for audit. `before` is null for `write`
+   * (file create/overwrite) and for codex events that need post-hoc
+   * reconciliation against `git diff` (`needsReconcile` flag).
+   */
+  | {
+      kind: 'diff_hunk';
+      toolUseId: string;
+      filePath: string;
+      opIndex: number;
+      mode: 'edit' | 'write' | 'multiedit_op';
+      before: string | null;
+      after: string;
+      /** Set by adapters that don't carry inline diffs (codex). The
+       *  supervisor is expected to reconcile via `git diff` once the
+       *  tool_result lands. */
+      needsReconcile?: boolean;
+    };
 
 export interface DecisionPayload {
   question: string;
@@ -246,11 +268,85 @@ function mapAssistant(raw: RawAssistant): StreamEvent[] {
       const tu = item as AssistantContentToolUse;
       if (typeof tu.id === 'string' && typeof tu.name === 'string') {
         out.push({ kind: 'tool_use', toolUseId: tu.id, name: tu.name, input: tu.input });
+        // Synthesize diff_hunk events from edit-style tool calls. We emit
+        // these *in addition to* the tool_use above so downstream consumers
+        // that key on tool_use (containment, cost, timeline) stay untouched.
+        out.push(...extractDiffHunkEvents(tu.id, tu.name, tu.input));
       }
     }
     // thinking and other content types are ignored
   }
   return out;
+}
+
+/** Synthesize diff_hunk events from Edit/Write/MultiEdit tool inputs.
+ *  Exported so the supervisor (or a test) can reuse the extraction logic
+ *  without re-parsing a stream line. */
+export function extractDiffHunkEvents(
+  toolUseId: string,
+  toolName: string,
+  input: unknown,
+): Array<Extract<StreamEvent, { kind: 'diff_hunk' }>> {
+  if (!isObject(input)) return [];
+  switch (toolName) {
+    case 'Edit': {
+      const filePath = typeof input.file_path === 'string' ? input.file_path : null;
+      const before = typeof input.old_string === 'string' ? input.old_string : null;
+      const after = typeof input.new_string === 'string' ? input.new_string : null;
+      if (!filePath || before === null || after === null) return [];
+      return [
+        {
+          kind: 'diff_hunk',
+          toolUseId,
+          filePath,
+          opIndex: 0,
+          mode: 'edit',
+          before,
+          after,
+        },
+      ];
+    }
+    case 'Write': {
+      const filePath = typeof input.file_path === 'string' ? input.file_path : null;
+      const after = typeof input.content === 'string' ? input.content : null;
+      if (!filePath || after === null) return [];
+      return [
+        {
+          kind: 'diff_hunk',
+          toolUseId,
+          filePath,
+          opIndex: 0,
+          mode: 'write',
+          before: null,
+          after,
+        },
+      ];
+    }
+    case 'MultiEdit': {
+      const filePath = typeof input.file_path === 'string' ? input.file_path : null;
+      const edits = Array.isArray(input.edits) ? input.edits : null;
+      if (!filePath || !edits) return [];
+      const out: Array<Extract<StreamEvent, { kind: 'diff_hunk' }>> = [];
+      edits.forEach((rawEdit, idx) => {
+        if (!isObject(rawEdit)) return;
+        const before = typeof rawEdit.old_string === 'string' ? rawEdit.old_string : null;
+        const after = typeof rawEdit.new_string === 'string' ? rawEdit.new_string : null;
+        if (before === null || after === null) return;
+        out.push({
+          kind: 'diff_hunk',
+          toolUseId,
+          filePath,
+          opIndex: idx,
+          mode: 'multiedit_op',
+          before,
+          after,
+        });
+      });
+      return out;
+    }
+    default:
+      return [];
+  }
 }
 
 const DECISION_BLOCK_RE = /```kanbots-decision\s*\n([\s\S]*?)\n```/g;

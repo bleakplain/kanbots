@@ -63,6 +63,7 @@ describe('migrations', () => {
       '0018_remove_api_key_providers',
       '0020_run_analytics',
       '0021_learnings',
+      '0022_diff_hunks',
     ]);
     store.close();
   });

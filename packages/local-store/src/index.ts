@@ -7,6 +7,7 @@ import { AgentRunsRepo } from './repos/agent-runs.js';
 import { AutopilotSessionsRepo } from './repos/autopilot-sessions.js';
 import { CardsRepo } from './repos/cards.js';
 import { ChatConversationsRepo } from './repos/chat-conversations.js';
+import { DiffHunksRepo } from './repos/diff-hunks.js';
 import { FoldersRepo } from './repos/folders.js';
 import { HttpCacheRepo } from './repos/http-cache.js';
 import { LearningsRepo } from './repos/learnings.js';
@@ -30,6 +31,7 @@ export interface Store {
   readonly promotions: PromotionsRepo;
   readonly httpCache: HttpCacheRepo;
   readonly learnings: LearningsRepo;
+  readonly diffHunks: DiffHunksRepo;
   readonly localIssues: LocalIssuesRepo;
   readonly workspaces: WorkspacesRepo;
   readonly folders: FoldersRepo;
@@ -68,6 +70,7 @@ function wrap(db: Db): Store {
     promotions: new PromotionsRepo(db),
     httpCache: new HttpCacheRepo(db),
     learnings: new LearningsRepo(db),
+    diffHunks: new DiffHunksRepo(db),
     localIssues: new LocalIssuesRepo(db),
     workspaces: new WorkspacesRepo(db),
     folders: new FoldersRepo(db),
@@ -107,6 +110,8 @@ export {
   hashLearningContent,
   normaliseLearningContent,
 } from './repos/learnings.js';
+export type { AppendDiffHunkInput } from './repos/diff-hunks.js';
+export { makeSnapshotId } from './repos/diff-hunks.js';
 export type {
   CreateAutopilotSessionInput,
   UpdateAutopilotSessionPatch,
@@ -181,6 +186,10 @@ export type {
   CheckKind,
   CheckStatus,
   CuratorRunState,
+  DiffHunk,
+  DiffHunkId,
+  DiffHunkMode,
+  DiffHunkStatus,
   Learning,
   LearningId,
   LearningTag,

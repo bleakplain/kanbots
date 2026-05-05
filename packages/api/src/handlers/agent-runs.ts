@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { promisify } from 'node:util';
-import type { AgentRun } from '@kanbots/local-store';
+import type { AgentRun, DiffHunk } from '@kanbots/local-store';
 import { z } from 'zod';
 import type {
   DiffFile,
@@ -37,6 +37,14 @@ export async function get(
   const run = deps.supervisor.getRun(parsed.runId);
   if (!run) throw notFound(`agent run ${parsed.runId} not found`);
   return run;
+}
+
+export async function listHunks(
+  deps: HandlerDeps,
+  args: RunIdArgs,
+): Promise<DiffHunk[]> {
+  const parsed = parseArgs(idSchema, args);
+  return deps.store.diffHunks.listByRun(parsed.runId);
 }
 
 export async function stop(

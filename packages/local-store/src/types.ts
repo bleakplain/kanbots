@@ -216,6 +216,34 @@ export interface CuratorRunState {
   spentDate: string | null;
 }
 
+export type DiffHunkId = number;
+export type DiffHunkMode = 'edit' | 'write' | 'multiedit_op';
+export type DiffHunkStatus = 'pending' | 'approved' | 'rejected' | 'superseded';
+
+/**
+ * One agent edit, captured from the stream-parser's view of Edit/Write/
+ * MultiEdit tool_use payloads. The snapshot id is content-addressed so it's
+ * stable across re-renders and survives a respawn (e.g. mid-run reject and
+ * resume).
+ */
+export interface DiffHunk {
+  id: DiffHunkId;
+  agentRunId: AgentRunId;
+  toolUseEventId: AgentEventId | null;
+  snapshotId: string;
+  filePath: string;
+  /** Position within a MultiEdit's edits[] array; 0 for Edit/Write. */
+  opIndex: number;
+  mode: DiffHunkMode;
+  /** Pre-edit text. null for `write` (file is created or fully overwritten). */
+  beforeText: string | null;
+  afterText: string;
+  status: DiffHunkStatus;
+  rejectReason: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export interface CacheEntry {
   key: string;
   etag: string | null;

@@ -18,6 +18,7 @@ import { migration as m0017 } from './0017-codex-cli-provider.js';
 import { migration as m0018 } from './0018-remove-api-key-providers.js';
 import { migration as m0020 } from './0020-run-analytics.js';
 import { migration as m0021 } from './0021-learnings.js';
+import { migration as m0022 } from './0022-diff-hunks.js';
 import type { Migration } from './types.js';
 
 // 0019-project-scope.ts is intentionally not imported here — it scaffolds
@@ -46,6 +47,7 @@ export const migrations: readonly Migration[] = [
   m0018,
   m0020,
   m0021,
+  m0022,
 ];
 
 export type { Migration };

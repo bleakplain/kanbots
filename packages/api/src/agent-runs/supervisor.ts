@@ -574,6 +574,18 @@ export async function createSupervisor(
           handleContainmentEscape(run, entry, streamEvent.name, verdict);
         }
       }
+      if (streamEvent.kind === 'diff_hunk' && !streamEvent.needsReconcile) {
+        // Persist the hunk for the live diff panel + reject mechanics.
+        // The unique snapshot_id index makes this idempotent across replays.
+        store.diffHunks.append({
+          agentRunId: run.id,
+          filePath: streamEvent.filePath,
+          opIndex: streamEvent.opIndex,
+          mode: streamEvent.mode,
+          beforeText: streamEvent.before,
+          afterText: streamEvent.after,
+        });
+      }
       const persisted = persistEvent(store, run.id, streamEvent);
       if (persisted) emitter.emit(eventChannel(run.id), persisted);
     });
@@ -1049,6 +1061,11 @@ function persistEvent(store: Store, runId: number, ev: StreamEvent): AgentEvent 
     case 'decision':
     case 'result':
     case 'rate_limit':
+    case 'diff_hunk':
+      // diff_hunk events are persisted to the diff_hunks table by the
+      // supervisor (not via agent_events) so this branch is intentionally
+      // a no-op. Keeping it explicit so a future StreamEvent variant
+      // forces a compile error.
       return null;
   }
 }

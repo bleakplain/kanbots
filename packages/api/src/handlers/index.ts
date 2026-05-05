@@ -93,6 +93,7 @@ export function createHandlers(opts: CreateHandlersOptions): Handlers {
     'agent-runs:fork': (args) => agentRuns.fork(deps, args),
     'agent-runs:promote-commit': (args) => agentRuns.promoteCommit(deps, args),
     'agent-runs:promote-pr': (args) => agentRuns.promotePr(deps, args),
+    'agent-runs:hunks:list': (args) => agentRuns.listHunks(deps, args),
     'agent-runs:events:subscribe': (args) => agentEvents.subscribe(opts, args),
     'agent-runs:events:unsubscribe': (args) =>
       agentEvents.unsubscribe(opts, args),
