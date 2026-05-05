@@ -1,0 +1,116 @@
+name: Release desktop
+
+# Triggers a multi-OS desktop build and uploads artifacts to a draft GitHub
+# Release. The release is left as a draft so a human can review the artifact
+# list, fill in the changelog, and click Publish.
+#
+# Trigger:
+#   * Push a tag matching `v*` (e.g. `v0.1.0`).
+#   * Or run manually from the Actions tab via workflow_dispatch.
+#
+# What ships per platform:
+#   linux   → kanbots-<v>-linux-x64.AppImage, kanbots-<v>-linux-x64.tar.xz
+#   macos   → kanbots-<v>-mac-arm64.dmg/zip, kanbots-<v>-mac-x64.dmg/zip
+#   windows → kanbots-<v>-win-x64.exe (nsis installer), kanbots-<v>-win-x64.exe (portable)
+#
+# Builds are unsigned for now. macOS users will need to right-click → Open the
+# first time; Windows users will see SmartScreen and click "More info → Run
+# anyway". See docs/releasing.md for code-signing follow-up plan.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (without leading v, e.g. 0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve target version
+        id: version
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            tag="${GITHUB_REF_NAME}"
+            echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bump desktop package version (no commit)
+        shell: bash
+        run: |
+          cd packages/desktop
+          npm version --no-git-tag-version --allow-same-version "${{ steps.version.outputs.version }}"
+
+      - name: Build & publish (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # electron-builder also looks for this name on some paths.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm --filter @kanbots/desktop run release -- --linux
+
+      - name: Build & publish (macOS)
+        if: matrix.os == 'macos-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Skip notarization (unsigned builds).
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: pnpm --filter @kanbots/desktop run release -- --mac
+
+      - name: Build & publish (Windows)
+        if: matrix.os == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm --filter @kanbots/desktop run release -- --win
+
+      - name: Upload build artifacts (workflow inspection)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanbots-${{ steps.version.outputs.version }}-${{ matrix.os }}
+          path: |
+            packages/desktop/release/*.AppImage
+            packages/desktop/release/*.tar.xz
+            packages/desktop/release/*.dmg
+            packages/desktop/release/*.zip
+            packages/desktop/release/*.exe
+            packages/desktop/release/latest*.yml
+          if-no-files-found: ignore
+          retention-days: 14

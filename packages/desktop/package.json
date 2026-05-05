@@ -12,8 +12,12 @@
     "build": "pnpm build:web && pnpm build:main && pnpm copy:web",
     "dev": "pnpm ensure:native && concurrently -k -n web,main,electron -c blue,yellow,magenta \"pnpm --filter @kanbots/web dev\" \"tsup --watch\" \"wait-on http://127.0.0.1:5173 ./dist/main.cjs && KANBOTS_RENDERER_URL=http://127.0.0.1:5173 electronmon ./dist/main.cjs\"",
     "launch": "pnpm ensure:native && pnpm build && electron ./dist/main.cjs",
-    "package": "pnpm build && electron-builder --linux AppImage",
+    "package": "pnpm ensure:native && pnpm build && electron-builder",
+    "package:linux": "pnpm ensure:native && pnpm build && electron-builder --linux",
+    "package:mac": "pnpm ensure:native && pnpm build && electron-builder --mac",
+    "package:win": "pnpm ensure:native && pnpm build && electron-builder --win",
     "package:dir": "pnpm build && electron-builder --dir",
+    "release": "pnpm ensure:native && pnpm build && electron-builder --publish always",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -64,13 +68,61 @@
       "dist/**/*",
       "package.json"
     ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "leodavinci1",
+        "repo": "kanbots",
+        "releaseType": "draft"
+      }
+    ],
     "linux": {
       "target": [
         "AppImage",
         "tar.xz"
       ],
       "category": "Development",
-      "artifactName": "kanbots-${version}.${ext}"
+      "artifactName": "kanbots-${version}-linux-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "artifactName": "kanbots-${version}-mac-${arch}.${ext}",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "writeUpdateInfo": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "kanbots-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "kanbots"
     },
     "npmRebuild": false,
     "nodeGypRebuild": false

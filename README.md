@@ -94,8 +94,13 @@ Read more about the two-product split:
 - **`git`**
 - Optional: **`gh`** CLI for GitHub mode auth
 
-Linux is the only build target right now (AppImage / tar.xz). macOS and
-Windows work in dev mode but aren't packaged from this repo.
+Packaged builds for **Linux**, **macOS** (Apple Silicon + Intel), and
+**Windows** (x64) are published to the
+[GitHub releases page](https://github.com/leodavinci1/kanbots/releases).
+macOS and Windows builds are currently unsigned — see
+[docs/getting-started.md](docs/getting-started.md#unsigned-builds) for
+the right-click-Open / SmartScreen-bypass walkthrough. Releasing
+infrastructure lives in [docs/releasing.md](docs/releasing.md).
 
 ## Install & run
 

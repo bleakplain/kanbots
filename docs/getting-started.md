@@ -13,24 +13,45 @@ dispatching an agent run.
 
 Grab the latest build from the
 [GitHub releases page](https://github.com/leodavinci1/kanbots/releases/latest).
-Pick the artifact that matches your platform — file names follow the
-`kanbots-<version>.<ext>` convention:
+Pick the artifact that matches your platform:
 
 | Platform | Artifact | Notes |
 | --- | --- | --- |
-| Linux x64 | `kanbots-<version>.AppImage` | `chmod +x` and run, or wire into your launcher |
-| Linux x64 (tarball) | `kanbots-<version>.tar.xz` | Extract anywhere, run `./kanbots` |
-| macOS | _build from source_ | Dev mode works (see below); no packaged build yet |
-| Windows | _build from source_ | Dev mode works (see below); no packaged build yet |
+| Linux x64 | `kanbots-<version>-linux-x64.AppImage` | `chmod +x` and run, or wire into your launcher. |
+| Linux x64 | `kanbots-<version>-linux-x64.tar.xz` | Extract anywhere, run `./kanbots`. |
+| macOS Apple Silicon | `kanbots-<version>-mac-arm64.dmg` | Drag to `/Applications`. See [unsigned-builds](#unsigned-builds). |
+| macOS Intel | `kanbots-<version>-mac-x64.dmg` | Drag to `/Applications`. See [unsigned-builds](#unsigned-builds). |
+| Windows x64 | `kanbots-<version>-win-x64.exe` | NSIS installer. See [unsigned-builds](#unsigned-builds). |
 
-> **Linux is the only packaged target right now.** macOS and Windows
-> users can run from source with `pnpm desktop:dev` — see the
-> [build-from-source](#build-from-source-macos--windows) section.
+The releasing pipeline lives in
+[docs/releasing.md](releasing.md); to run from source instead, see
+[build-from-source](#build-from-source-macos--windows) below.
 
-### Build from source (macOS / Windows)
+### Unsigned builds
 
-If there's no packaged binary for your platform, you can run kanbots
-from source. You'll need **Node 20+**, **pnpm 10+**, and **git**:
+KanBots binaries are not yet code-signed (Apple Developer ID and
+Windows EV certs are paid; we'll add them when revenue covers it).
+First-launch friction is small but real:
+
+**macOS** — Gatekeeper will say _"kanbots cannot be opened because
+Apple cannot check it for malicious software."_ Either right-click the
+app and choose **Open** (then click **Open** again in the prompt), or
+clear the quarantine flag from a terminal:
+
+```sh
+xattr -d com.apple.quarantine "/Applications/kanbots.app"
+```
+
+**Windows** — Microsoft Defender SmartScreen pops up: _"Windows
+protected your PC."_ Click **More info → Run anyway**.
+
+After the first launch you don't see these prompts again on the same
+machine.
+
+### Build from source (any platform)
+
+If you'd rather run from source, you'll need **Node 20+**, **pnpm 10+**,
+and **git**:
 
 ```sh
 git clone https://github.com/leodavinci1/kanbots
