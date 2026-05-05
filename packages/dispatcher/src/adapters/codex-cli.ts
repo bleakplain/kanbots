@@ -205,6 +205,9 @@ function mapEvent(ev: CodexEvent): StreamEvent[] {
     case 'turn.started':
       return [];
     case 'turn.completed':
+      // Token usage is emitted here but cost is computed downstream in
+      // worker.ts using the pricing table — the adapter doesn't have the
+      // model id in scope.
       return [
         {
           kind: 'result',
@@ -212,8 +215,6 @@ function mapEvent(ev: CodexEvent): StreamEvent[] {
           text: '',
           tokenUsage: tokenUsageFrom(ev.usage),
           durationMs: null,
-          // TODO(codex-cost): codex emits tokens but no cost — compute from
-          // the model catalogue once a price helper is exposed to dispatcher.
           totalCostUsd: null,
         },
       ];

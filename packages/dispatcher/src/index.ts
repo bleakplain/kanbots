@@ -31,6 +31,14 @@ export {
 export { parseStreamLine, makeLineSplitter, type StreamEvent } from './stream-parser.js';
 
 export {
+  MODEL_PRICING,
+  computeCostUsd,
+  getModelPricing,
+  type ModelPricing,
+  type TokenUsage,
+} from './pricing.js';
+
+export {
   startAgentRun,
   DEFAULT_GRACEFUL_TIMEOUT_MS,
   UnsupportedProviderForAgentRunError,

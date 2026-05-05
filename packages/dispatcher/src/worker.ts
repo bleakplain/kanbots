@@ -4,6 +4,7 @@ import { claudeCodeAdapter } from './adapters/claude-code.js';
 import { codexCliAdapter } from './adapters/codex-cli.js';
 import type { AgentCliAdapter } from './adapters/types.js';
 import type { SpawnFn } from './composer.js';
+import { computeCostUsd } from './pricing.js';
 import { makeLineSplitter, type StreamEvent } from './stream-parser.js';
 
 export type AgentRunProvider = 'claude-code' | 'codex-cli';
@@ -145,7 +146,22 @@ export function startAgentRun(opts: StartAgentRunOptions): AgentRunHandle {
     const lines = splitter(chunk.toString('utf8'));
     for (const line of lines) {
       const parsed = adapter.parseLine(line);
-      for (const ev of parsed) {
+      for (let ev of parsed) {
+        // Some providers (codex) emit token counts but no cost on result
+        // events. Compute cost from the static pricing table when we know
+        // the model. Adapters that already carry cost (claude-code) are
+        // unaffected because totalCostUsd is non-null.
+        if (
+          ev.kind === 'result' &&
+          ev.totalCostUsd === null &&
+          ev.tokenUsage !== null &&
+          opts.model
+        ) {
+          const usd = computeCostUsd(opts.model, ev.tokenUsage);
+          if (usd !== null) {
+            ev = { ...ev, totalCostUsd: usd };
+          }
+        }
         if (ev.kind === 'result') {
           result = {
             isError: ev.isError,
