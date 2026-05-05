@@ -5,11 +5,23 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
+const AGENT_BRANCH_PREFIX = 'refs/heads/kanbots/issue-';
+
 const PRE_PUSH_HOOK = `#!/bin/sh
-# Installed by kanbots: agent worktrees must not push to any remote.
-# Humans can bypass with \`git push --no-verify\` if absolutely needed.
-echo "kanbots: agent worktrees are not allowed to push; commit locally and let the human review." 1>&2
-exit 1
+# Installed by kanbots to block pushes of agent worktree branches.
+# Git treats hooks/ as shared across worktrees, so this file may end up
+# in the main repo's .git/hooks/. The branch-name guard below keeps it
+# harmless for normal work — only refs matching '${AGENT_BRANCH_PREFIX}*'
+# are rejected. Humans can still bypass with \`git push --no-verify\`.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_ref" in
+    ${AGENT_BRANCH_PREFIX}*)
+      echo "kanbots: agent worktree branch '$local_ref' cannot be pushed; commit locally and let the human review." 1>&2
+      exit 1
+      ;;
+  esac
+done
+exit 0
 `;
 
 async function hardenWorktree(worktreePath: string): Promise<void> {
