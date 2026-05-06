@@ -134,6 +134,21 @@ const api: KanbotsBridge = {
     ipcRenderer.invoke('kanbots:close-cloud-workspace') as Promise<void>,
   recentCloudWorkspaces: () =>
     ipcRenderer.invoke('kanbots:recent-cloud-workspaces') as Promise<RecentCloudWorkspace[]>,
+  cloudProjectBindingGet: (args: { orgSlug: string; projectSlug: string }) =>
+    ipcRenderer.invoke('kanbots:cloud:project-binding-get', args) as Promise<
+      { localRepoPath: string; updatedAt: string } | null
+    >,
+  cloudProjectBindingSet: (args: {
+    orgSlug: string;
+    projectSlug: string;
+    localRepoPath: string;
+  }) =>
+    ipcRenderer.invoke('kanbots:cloud:project-binding-set', args) as Promise<{
+      localRepoPath: string;
+      updatedAt: string;
+    }>,
+  cloudProjectBindingClear: (args: { orgSlug: string; projectSlug: string }) =>
+    ipcRenderer.invoke('kanbots:cloud:project-binding-clear', args) as Promise<void>,
   setNotifyOnRunComplete: (enabled: boolean) =>
     ipcRenderer.invoke('kanbots:set-notify-on-run-complete', enabled) as Promise<
       { ok: true } | { ok: false; error: string }

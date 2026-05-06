@@ -60,6 +60,12 @@ import {
   type CloudStatus,
 } from './cloud-auth.js';
 import {
+  clearCloudProjectBinding,
+  getCloudProjectBinding,
+  setCloudProjectBinding,
+  type CloudProjectBinding,
+} from './cloud-bindings.js';
+import {
   createCloudClient,
   type AgentRunListResponse,
   type AgentRunSummary,
@@ -803,12 +809,13 @@ async function openCloudWorkspaceInternal(
 
   await closeActiveWorkspace();
 
+  const binding = await getCloudProjectBinding(orgSlug, projectSlug);
   const info: ActiveCloudWorkspaceInfo = {
     orgSlug,
     orgDisplayName: org.display_name,
     projectSlug,
     projectDisplayName: project.display_name,
-    localRepoPath: null,
+    localRepoPath: binding?.localRepoPath ?? null,
   };
   activeCloudWorkspace = info;
   await recordCloudRecent({
@@ -1002,6 +1009,60 @@ function registerIpc(): void {
     'kanbots:recent-cloud-workspaces',
     async (): Promise<RecentCloudWorkspace[]> => {
       return readCloudRecents();
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:project-binding-get',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string },
+    ): Promise<CloudProjectBinding | null> => {
+      return getCloudProjectBinding(args.orgSlug, args.projectSlug);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:project-binding-set',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; localRepoPath: string },
+    ): Promise<CloudProjectBinding> => {
+      const result = await setCloudProjectBinding(
+        args.orgSlug,
+        args.projectSlug,
+        args.localRepoPath,
+      );
+      // Reflect on the active cloud workspace so the renderer's
+      // header updates without a full bootstrap reload.
+      if (
+        activeCloudWorkspace !== null &&
+        activeCloudWorkspace.orgSlug === args.orgSlug &&
+        activeCloudWorkspace.projectSlug === args.projectSlug
+      ) {
+        activeCloudWorkspace = {
+          ...activeCloudWorkspace,
+          localRepoPath: result.localRepoPath,
+        };
+      }
+      return result;
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:project-binding-clear',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string },
+    ): Promise<void> => {
+      await clearCloudProjectBinding(args.orgSlug, args.projectSlug);
+      if (
+        activeCloudWorkspace !== null &&
+        activeCloudWorkspace.orgSlug === args.orgSlug &&
+        activeCloudWorkspace.projectSlug === args.projectSlug
+      ) {
+        activeCloudWorkspace = { ...activeCloudWorkspace, localRepoPath: null };
+      }
     },
   );
 

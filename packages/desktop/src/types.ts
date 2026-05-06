@@ -126,6 +126,19 @@ export interface KanbotsBridge {
   }): Promise<{ ok: true } | { ok: false; error: string }>;
   closeCloudWorkspace(): Promise<void>;
   recentCloudWorkspaces(): Promise<RecentCloudWorkspace[]>;
+  cloudProjectBindingGet(args: {
+    orgSlug: string;
+    projectSlug: string;
+  }): Promise<{ localRepoPath: string; updatedAt: string } | null>;
+  cloudProjectBindingSet(args: {
+    orgSlug: string;
+    projectSlug: string;
+    localRepoPath: string;
+  }): Promise<{ localRepoPath: string; updatedAt: string }>;
+  cloudProjectBindingClear(args: {
+    orgSlug: string;
+    projectSlug: string;
+  }): Promise<void>;
   cloudCardsList(args: {
     orgSlug: string;
     projectSlug: string;

@@ -11,6 +11,12 @@ export interface CloudCardModalProps {
   orgSlug: string;
   projectSlug: string;
   cardNumber: number;
+  /**
+   * Pinned local repo for this project (Option C). When null, the
+   * agent dispatch flow surfaces a clear "bind a repo first"
+   * message instead of creating a run that has nowhere to execute.
+   */
+  boundRepo: string | null;
   onClose: () => void;
   onChanged: () => void;
 }
@@ -37,6 +43,7 @@ export function CloudCardModal({
   orgSlug,
   projectSlug,
   cardNumber,
+  boundRepo,
   onClose,
   onChanged,
 }: CloudCardModalProps) {
@@ -218,6 +225,14 @@ export function CloudCardModal({
   }
 
   async function dispatchRun(): Promise<void> {
+    if (boundRepo === null) {
+      setState((s) => ({
+        ...s,
+        error:
+          'Bind a local repo to this project from the toolbar (top of the board) before dispatching an agent.',
+      }));
+      return;
+    }
     const bridge = getBridge();
     if (!bridge) return;
     setDispatching(true);

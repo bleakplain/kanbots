@@ -80,6 +80,9 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     | 'openCloudWorkspace'
     | 'closeCloudWorkspace'
     | 'recentCloudWorkspaces'
+    | 'cloudProjectBindingGet'
+    | 'cloudProjectBindingSet'
+    | 'cloudProjectBindingClear'
     | 'setNotifyOnRunComplete'
   > = {
     bootstrap: () =>
@@ -136,6 +139,10 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     cloudRunsGet: () => Promise.reject(new Error('fake bridge: no cloud runs')),
     cloudRunsStreamStart: () => Promise.resolve({ subscriptionId: 'fake' }),
     cloudRunsStreamStop: () => Promise.resolve(),
+    cloudProjectBindingGet: () => Promise.resolve(null),
+    cloudProjectBindingSet: () =>
+      Promise.resolve({ localRepoPath: '/tmp', updatedAt: new Date().toISOString() }),
+    cloudProjectBindingClear: () => Promise.resolve(),
     openCloudWorkspace: () => Promise.resolve({ ok: true }),
     closeCloudWorkspace: () => Promise.resolve(),
     recentCloudWorkspaces: () => Promise.resolve([]),

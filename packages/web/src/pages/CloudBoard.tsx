@@ -44,6 +44,45 @@ export function CloudBoard({ workspace, onSwitchWorkspace }: CloudBoardProps) {
   const [openCardNumber, setOpenCardNumber] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [boundRepo, setBoundRepo] = useState<string | null>(workspace.localRepoPath);
+
+  async function bindRepo(): Promise<void> {
+    const bridge = getBridge();
+    if (!bridge) return;
+    const path = await bridge.pickFolder();
+    if (path === null) return;
+    try {
+      const next = await bridge.cloudProjectBindingSet({
+        orgSlug: workspace.orgSlug,
+        projectSlug: workspace.projectSlug,
+        localRepoPath: path,
+      });
+      setBoundRepo(next.localRepoPath);
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    }
+  }
+
+  async function unbindRepo(): Promise<void> {
+    const bridge = getBridge();
+    if (!bridge) return;
+    if (!window.confirm('Unbind the local repo from this cloud project?')) return;
+    try {
+      await bridge.cloudProjectBindingClear({
+        orgSlug: workspace.orgSlug,
+        projectSlug: workspace.projectSlug,
+      });
+      setBoundRepo(null);
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    }
+  }
 
   const refresh = useCallback(async (): Promise<void> => {
     const bridge = getBridge();
@@ -129,6 +168,60 @@ export function CloudBoard({ workspace, onSwitchWorkspace }: CloudBoardProps) {
         <strong>{workspace.projectDisplayName}</strong>
         <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>
           {workspace.orgDisplayName} · cloud
+        </span>
+        <span
+          style={{
+            color: 'var(--ink-3)',
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          {boundRepo !== null ? (
+            <>
+              <span title={boundRepo}>📁 {boundRepo.split('/').slice(-2).join('/')}</span>
+              <button
+                type="button"
+                onClick={() => void bindRepo()}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--ink-3)',
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  padding: 0,
+                  fontSize: 12,
+                }}
+              >
+                change
+              </button>
+              <button
+                type="button"
+                onClick={() => void unbindRepo()}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--ink-3)',
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  padding: 0,
+                  fontSize: 12,
+                }}
+              >
+                unbind
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void bindRepo()}
+              className="kb-btn ghost"
+              style={{ fontSize: 12 }}
+            >
+              Bind local repo
+            </button>
+          )}
         </span>
         <span style={{ flex: 1 }} />
         {creating ? (
@@ -235,6 +328,7 @@ export function CloudBoard({ workspace, onSwitchWorkspace }: CloudBoardProps) {
           orgSlug={workspace.orgSlug}
           projectSlug={workspace.projectSlug}
           cardNumber={openCardNumber}
+          boundRepo={boundRepo}
           onClose={() => setOpenCardNumber(null)}
           onChanged={() => void refresh()}
         />

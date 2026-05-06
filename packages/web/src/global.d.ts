@@ -139,6 +139,19 @@ export interface KanbotsBridge {
     lastEventId?: string;
   }): Promise<{ subscriptionId: string }>;
   cloudRunsStreamStop(subscriptionId: string): Promise<void>;
+  cloudProjectBindingGet(args: {
+    orgSlug: string;
+    projectSlug: string;
+  }): Promise<{ localRepoPath: string; updatedAt: string } | null>;
+  cloudProjectBindingSet(args: {
+    orgSlug: string;
+    projectSlug: string;
+    localRepoPath: string;
+  }): Promise<{ localRepoPath: string; updatedAt: string }>;
+  cloudProjectBindingClear(args: {
+    orgSlug: string;
+    projectSlug: string;
+  }): Promise<void>;
   openCloudWorkspace(args: {
     orgSlug: string;
     projectSlug: string;
