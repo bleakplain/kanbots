@@ -48,6 +48,30 @@ import {
   isCodexAuthenticated,
   startCodexLogin,
 } from './codex-auth.js';
+import {
+  cancelCloudLogin,
+  clearCloudAuth,
+  dismissCloudPrompt,
+  getCloudStatus,
+  getCloudToken,
+  pollCloudLogin,
+  startCloudLogin,
+  type CloudPollResult,
+  type CloudStatus,
+} from './cloud-auth.js';
+import {
+  createCloudClient,
+  type CreateCardRequest,
+  type CreateOrgRequest,
+  type CreateOrgResponse,
+  type CreateProjectRequest,
+  type ListCardsQuery,
+  type OrgListResponse,
+  type ProjectListResponse,
+  type ProjectSummary,
+  type UpdateCardRequest,
+  type UserMe,
+} from '@kanbots/cloud-client';
 import { watchDbFile, type DbWatcher } from './db-watcher.js';
 import {
   createSubscriptionRegistry,
@@ -97,6 +121,22 @@ process.on('unhandledRejection', (reason) => {
 let activeWorkspace: ActiveWorkspace | null = null;
 let mainWindow: BrowserWindow | null = null;
 const chatWindows = new Set<BrowserWindow>();
+
+const DEFAULT_CLOUD_BASE_URL =
+  process.env['KANBOTS_CLOUD_BASE_URL'] ?? 'https://app.kanbots.dev';
+
+/**
+ * Process-wide cloud client. The base URL and token are resolved
+ * lazily on each call so login/logout/endpoint changes propagate
+ * without restarting the app.
+ */
+const cloudClient = createCloudClient({
+  getToken: getCloudToken,
+  getBaseUrl: async () => {
+    const status = await getCloudStatus();
+    return status.baseUrl ?? DEFAULT_CLOUD_BASE_URL;
+  },
+});
 
 function appIconOption(): { icon: string } | Record<string, never> {
   const candidate = join(__dirname, 'icon.png');
@@ -685,9 +725,10 @@ function activeWorkspaceInfo(): ActiveWorkspaceInfo | null {
 
 function registerIpc(): void {
   ipcMain.handle('kanbots:bootstrap', async (): Promise<BootstrapPayload> => {
-    const [recents, claudeAuthed] = await Promise.all([
+    const [recents, claudeAuthed, cloudStatus] = await Promise.all([
       pruneMissingRecents(),
       isClaudeAuthenticated(),
+      getCloudStatus(),
     ]);
     // Cheap file/env probe — `codex login status` would shell out and can
     // take seconds. The deeper check still runs via `kanbots:codex-auth-status`
@@ -699,6 +740,8 @@ function registerIpc(): void {
       recents,
       claudeAuthed,
       codexAuthed,
+      cloudAuthed: cloudStatus.authed,
+      cloudPromptDismissed: cloudStatus.promptDismissed,
     };
   });
 
@@ -731,6 +774,127 @@ function registerIpc(): void {
   ipcMain.handle('kanbots:codex-login-cancel', async (): Promise<void> => {
     cancelCodexLogin();
   });
+
+  ipcMain.handle('kanbots:cloud-auth-status', async (): Promise<CloudStatus> => {
+    return getCloudStatus();
+  });
+
+  ipcMain.handle(
+    'kanbots:cloud-login-start',
+    async (
+      _event,
+      opts?: { baseUrl?: string },
+    ): Promise<
+      | {
+          ok: true;
+          userCode: string;
+          verificationUri: string;
+          verificationUriComplete: string;
+          expiresAt: number;
+          intervalMs: number;
+        }
+      | { ok: false; error: string }
+    > => {
+      return startCloudLogin(opts);
+    },
+  );
+
+  ipcMain.handle('kanbots:cloud-login-poll', async (): Promise<CloudPollResult> => {
+    return pollCloudLogin();
+  });
+
+  ipcMain.handle('kanbots:cloud-login-cancel', async (): Promise<void> => {
+    cancelCloudLogin();
+  });
+
+  ipcMain.handle('kanbots:cloud-logout', async (): Promise<void> => {
+    await clearCloudAuth();
+  });
+
+  ipcMain.handle('kanbots:cloud-prompt-dismiss', async (): Promise<void> => {
+    await dismissCloudPrompt();
+  });
+
+  ipcMain.handle('kanbots:cloud:users-me', async (): Promise<UserMe> => {
+    return cloudClient.users.me();
+  });
+
+  ipcMain.handle(
+    'kanbots:cloud:orgs-list',
+    async (
+      _event,
+      opts?: { cursor?: string; limit?: number },
+    ): Promise<OrgListResponse> => {
+      return cloudClient.orgs.list(opts);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:orgs-create',
+    async (_event, body: CreateOrgRequest): Promise<CreateOrgResponse> => {
+      return cloudClient.orgs.create(body);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:projects-list',
+    async (_event, orgSlug: string): Promise<ProjectListResponse> => {
+      return cloudClient.projects.list(orgSlug);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:projects-create',
+    async (
+      _event,
+      args: { orgSlug: string; body: CreateProjectRequest },
+    ): Promise<ProjectSummary> => {
+      return cloudClient.projects.create(args.orgSlug, args.body);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:cards-list',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; query?: ListCardsQuery },
+    ) => {
+      return cloudClient.cards.list(args.orgSlug, args.projectSlug, args.query);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:cards-create',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; body: CreateCardRequest },
+    ) => {
+      return cloudClient.cards.create(args.orgSlug, args.projectSlug, args.body);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:cards-update',
+    async (
+      _event,
+      args: {
+        orgSlug: string;
+        projectSlug: string;
+        number: number;
+        body: UpdateCardRequest;
+        ifMatch?: string;
+      },
+    ) => {
+      const opts = args.ifMatch !== undefined ? { ifMatch: args.ifMatch } : undefined;
+      return cloudClient.cards.update(
+        args.orgSlug,
+        args.projectSlug,
+        args.number,
+        args.body,
+        opts,
+      );
+    },
+  );
 
   ipcMain.handle('kanbots:pick-folder', async (): Promise<string | null> => {
     if (!mainWindow) return null;

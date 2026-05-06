@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@kanbots/api": "workspace:*",
+    "@kanbots/cloud-client": "workspace:*",
     "@kanbots/core": "workspace:*",
     "@kanbots/dispatcher": "workspace:*",
     "@kanbots/local-store": "workspace:*",

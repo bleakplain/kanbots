@@ -14,8 +14,25 @@ import type {
   UploadAttachmentResult,
 } from '@kanbots/api';
 import type {
+  CardListResponse,
+  CardSummary,
+  CreateCardRequest,
+  CreateOrgRequest,
+  CreateOrgResponse,
+  CreateProjectRequest,
+  ListCardsQuery,
+  OrgListResponse,
+  ProjectListResponse,
+  ProjectSummary,
+  UpdateCardRequest,
+  UserMe,
+} from '@kanbots/cloud-client';
+import type {
   ActiveWorkspaceInfo,
   BootstrapPayload,
+  CloudLoginPollResult,
+  CloudLoginStartResult,
+  CloudStatusPayload,
   RecentWorkspace,
 } from './desktop-bridge.js';
 
@@ -44,6 +61,37 @@ export interface KanbotsBridge {
   codexAuthStatus(): Promise<{ authed: boolean }>;
   codexLoginStart(): Promise<{ ok: true } | { ok: false; error: string }>;
   codexLoginCancel(): Promise<void>;
+  cloudAuthStatus(): Promise<CloudStatusPayload>;
+  cloudLoginStart(opts?: { baseUrl?: string }): Promise<CloudLoginStartResult>;
+  cloudLoginPoll(): Promise<CloudLoginPollResult>;
+  cloudLoginCancel(): Promise<void>;
+  cloudLogout(): Promise<void>;
+  cloudPromptDismiss(): Promise<void>;
+  cloudUsersMe(): Promise<UserMe>;
+  cloudOrgsList(opts?: { cursor?: string; limit?: number }): Promise<OrgListResponse>;
+  cloudOrgsCreate(body: CreateOrgRequest): Promise<CreateOrgResponse>;
+  cloudProjectsList(orgSlug: string): Promise<ProjectListResponse>;
+  cloudProjectsCreate(args: {
+    orgSlug: string;
+    body: CreateProjectRequest;
+  }): Promise<ProjectSummary>;
+  cloudCardsList(args: {
+    orgSlug: string;
+    projectSlug: string;
+    query?: ListCardsQuery;
+  }): Promise<CardListResponse>;
+  cloudCardsCreate(args: {
+    orgSlug: string;
+    projectSlug: string;
+    body: CreateCardRequest;
+  }): Promise<CardSummary>;
+  cloudCardsUpdate(args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+    body: UpdateCardRequest;
+    ifMatch?: string;
+  }): Promise<CardSummary>;
   setNotifyOnRunComplete(
     enabled: boolean,
   ): Promise<{ ok: true } | { ok: false; error: string }>;
@@ -64,4 +112,11 @@ declare global {
   }
 }
 
-export type { ActiveWorkspaceInfo, BootstrapPayload, RecentWorkspace };
+export type {
+  ActiveWorkspaceInfo,
+  BootstrapPayload,
+  CloudLoginPollResult,
+  CloudLoginStartResult,
+  CloudStatusPayload,
+  RecentWorkspace,
+};

@@ -33,6 +33,8 @@ async function bootstrap(): Promise<{
   hasBridge: boolean;
   claudeAuthed: boolean;
   codexAuthed: boolean;
+  cloudAuthed: boolean;
+  cloudPromptDismissed: boolean;
 }> {
   const bridge = getBridge();
   if (!bridge) {
@@ -42,6 +44,8 @@ async function bootstrap(): Promise<{
       hasBridge: false,
       claudeAuthed: true,
       codexAuthed: true,
+      cloudAuthed: false,
+      cloudPromptDismissed: true,
     };
   }
   const payload = await bridge.bootstrap();
@@ -51,6 +55,8 @@ async function bootstrap(): Promise<{
     hasBridge: true,
     claudeAuthed: payload.claudeAuthed,
     codexAuthed: payload.codexAuthed,
+    cloudAuthed: payload.cloudAuthed,
+    cloudPromptDismissed: payload.cloudPromptDismissed,
   };
 }
 
@@ -75,19 +81,31 @@ if (isChatWindow) {
     </StrictMode>,
   );
 } else {
-  void bootstrap().then(({ workspace, recents, hasBridge, claudeAuthed, codexAuthed }) => {
-    root.render(
-      <StrictMode>
-        <ErrorBoundary>
-          <App
-            workspace={workspace}
-            initialRecents={recents}
-            hasBridge={hasBridge}
-            initialClaudeAuthed={claudeAuthed}
-            initialCodexAuthed={codexAuthed}
-          />
-        </ErrorBoundary>
-      </StrictMode>,
-    );
-  });
+  void bootstrap().then(
+    ({
+      workspace,
+      recents,
+      hasBridge,
+      claudeAuthed,
+      codexAuthed,
+      cloudAuthed,
+      cloudPromptDismissed,
+    }) => {
+      root.render(
+        <StrictMode>
+          <ErrorBoundary>
+            <App
+              workspace={workspace}
+              initialRecents={recents}
+              hasBridge={hasBridge}
+              initialClaudeAuthed={claudeAuthed}
+              initialCodexAuthed={codexAuthed}
+              initialCloudAuthed={cloudAuthed}
+              initialCloudPromptDismissed={cloudPromptDismissed}
+            />
+          </ErrorBoundary>
+        </StrictMode>,
+      );
+    },
+  );
 }

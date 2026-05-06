@@ -13,6 +13,7 @@ import { api } from '../api.js';
 import { ArchiveModal } from '../components/modals/ArchiveModal.js';
 import { AutopilotLaunchModal } from '../components/modals/AutopilotLaunchModal.js';
 import { CardPreview } from '../components/Card.js';
+import { CloudSettingsModal } from '../components/modals/CloudSettingsModal.js';
 import { Column, type SuggestActivity } from '../components/Column.js';
 import { PersonaPickerModal } from '../components/modals/PersonaPickerModal.js';
 import { HouseRulesSettingsModal } from '../components/modals/HouseRulesSettingsModal.js';
@@ -168,6 +169,7 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [sentrySettingsOpen, setSentrySettingsOpen] = useState(false);
   const [providersSettingsOpen, setProvidersSettingsOpen] = useState(false);
+  const [cloudSettingsOpen, setCloudSettingsOpen] = useState(false);
   const [houseRulesOpen, setHouseRulesOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useSelection();
@@ -382,6 +384,15 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
           <button
             type="button"
             className="kb-btn ghost"
+            onClick={() => setCloudSettingsOpen(true)}
+            title="Kanbots Cloud account"
+            aria-label="Kanbots Cloud account"
+          >
+            Cloud
+          </button>
+          <button
+            type="button"
+            className="kb-btn ghost"
             onClick={() => setHouseRulesOpen(true)}
             title="Workspace house rules — prepended to every run"
             aria-label="House rules"
@@ -550,6 +561,9 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
       ) : null}
       {providersSettingsOpen ? (
         <ProvidersSettingsModal onClose={() => setProvidersSettingsOpen(false)} />
+      ) : null}
+      {cloudSettingsOpen ? (
+        <CloudSettingsModal onClose={() => setCloudSettingsOpen(false)} />
       ) : null}
       {sentrySettingsOpen ? (
         <SentrySettingsModal onClose={() => setSentrySettingsOpen(false)} />

@@ -13,6 +13,7 @@ import { api } from './api.js';
 import { Window } from './components/shell/Window.js';
 import { Shell } from './components/shell/Shell.js';
 import { LeftRail } from './components/rail/LeftRail.js';
+import { CloudFirstRunPrompt } from './components/CloudFirstRunPrompt.js';
 import { TaskDetailModal } from './components/modals/TaskDetailModal.js';
 import { TaskCreateModal } from './components/modals/TaskCreateModal.js';
 import { SplitModal } from './components/modals/SplitModal.js';
@@ -28,6 +29,8 @@ interface AppProps {
   hasBridge: boolean;
   initialClaudeAuthed: boolean;
   initialCodexAuthed: boolean;
+  initialCloudAuthed: boolean;
+  initialCloudPromptDismissed: boolean;
 }
 
 function describeFolder(config: Config | null): string {
@@ -231,13 +234,31 @@ export function App({
   hasBridge,
   initialClaudeAuthed,
   initialCodexAuthed,
+  initialCloudAuthed,
+  initialCloudPromptDismissed,
 }: AppProps) {
   const [providersTick, setProvidersTick] = useState(0);
+  const [cloudPromptDone, setCloudPromptDone] = useState<boolean>(
+    initialCloudAuthed || initialCloudPromptDismissed,
+  );
   const { data: config } = useFetch(workspace ? 'config' : null, () => api.config());
   const { data: providers } = useFetch(
     workspace ? `providers:${providersTick}` : null,
     () => api.getProviders(),
   );
+
+  // Cloud first-run prompt: highest-priority overlay. Sits in front of the
+  // workspace picker so the user makes the local-vs-cloud choice before
+  // anything else. Dismissal is sticky (persisted to disk) so this only
+  // shows once. Browserless dev shells skip the gate entirely.
+  if (hasBridge && !cloudPromptDone) {
+    return (
+      <CloudFirstRunPrompt
+        onDismissed={() => setCloudPromptDone(true)}
+        onSignedIn={() => setCloudPromptDone(true)}
+      />
+    );
+  }
 
   // Workspace picker still gates first — without a workspace, there's no
   // store to read provider config from.

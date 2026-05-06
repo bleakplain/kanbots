@@ -55,6 +55,20 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     | 'codexAuthStatus'
     | 'codexLoginStart'
     | 'codexLoginCancel'
+    | 'cloudAuthStatus'
+    | 'cloudLoginStart'
+    | 'cloudLoginPoll'
+    | 'cloudLoginCancel'
+    | 'cloudLogout'
+    | 'cloudPromptDismiss'
+    | 'cloudUsersMe'
+    | 'cloudOrgsList'
+    | 'cloudOrgsCreate'
+    | 'cloudProjectsList'
+    | 'cloudProjectsCreate'
+    | 'cloudCardsList'
+    | 'cloudCardsCreate'
+    | 'cloudCardsUpdate'
     | 'setNotifyOnRunComplete'
   > = {
     bootstrap: () =>
@@ -63,6 +77,8 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
         recents: [],
         claudeAuthed: true,
         codexAuthed: true,
+        cloudAuthed: false,
+        cloudPromptDismissed: true,
       }),
     pickFolder: () => Promise.resolve(null),
     openWorkspace: () => Promise.resolve({ ok: true }),
@@ -77,6 +93,28 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     codexAuthStatus: () => Promise.resolve({ authed: true }),
     codexLoginStart: () => Promise.resolve({ ok: true }),
     codexLoginCancel: () => Promise.resolve(),
+    cloudAuthStatus: () =>
+      Promise.resolve({
+        authed: false,
+        baseUrl: null,
+        tokenPrefix: null,
+        orgId: null,
+        signedInAt: null,
+        promptDismissed: true,
+      }),
+    cloudLoginStart: () => Promise.resolve({ ok: false, error: 'fake bridge: no cloud' }),
+    cloudLoginPoll: () => Promise.resolve({ status: 'idle' }),
+    cloudLoginCancel: () => Promise.resolve(),
+    cloudLogout: () => Promise.resolve(),
+    cloudPromptDismiss: () => Promise.resolve(),
+    cloudUsersMe: () => Promise.reject(new Error('fake bridge: no cloud user')),
+    cloudOrgsList: () => Promise.resolve({ data: [], next_cursor: null }),
+    cloudOrgsCreate: () => Promise.reject(new Error('fake bridge: no cloud orgs')),
+    cloudProjectsList: () => Promise.resolve({ data: [] }),
+    cloudProjectsCreate: () => Promise.reject(new Error('fake bridge: no cloud projects')),
+    cloudCardsList: () => Promise.resolve({ data: [], next_cursor: null }),
+    cloudCardsCreate: () => Promise.reject(new Error('fake bridge: no cloud cards')),
+    cloudCardsUpdate: () => Promise.reject(new Error('fake bridge: no cloud cards')),
     setNotifyOnRunComplete: () => Promise.resolve({ ok: true }),
   };
 

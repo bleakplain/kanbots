@@ -26,7 +26,36 @@ export interface BootstrapPayload {
   recents: RecentWorkspace[];
   claudeAuthed: boolean;
   codexAuthed: boolean;
+  cloudAuthed: boolean;
+  cloudPromptDismissed: boolean;
 }
+
+export interface CloudStatusPayload {
+  authed: boolean;
+  baseUrl: string | null;
+  tokenPrefix: string | null;
+  orgId: string | null;
+  signedInAt: string | null;
+  promptDismissed: boolean;
+}
+
+export type CloudLoginStartResult =
+  | {
+      ok: true;
+      userCode: string;
+      verificationUri: string;
+      verificationUriComplete: string;
+      expiresAt: number;
+      intervalMs: number;
+    }
+  | { ok: false; error: string };
+
+export type CloudLoginPollResult =
+  | { status: 'pending' }
+  | { status: 'expired' | 'consumed' | 'cancelled' }
+  | { status: 'approved'; tokenPrefix: string; orgId: string | null }
+  | { status: 'error'; error: string }
+  | { status: 'idle' };
 
 export function getBridge(): NonNullable<Window['kanbots']> | null {
   return typeof window !== 'undefined' && window.kanbots ? window.kanbots : null;
