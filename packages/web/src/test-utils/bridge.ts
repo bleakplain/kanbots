@@ -75,6 +75,8 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     | 'cloudRunsListForCard'
     | 'cloudRunsCreate'
     | 'cloudRunsGet'
+    | 'cloudRunsStreamStart'
+    | 'cloudRunsStreamStop'
     | 'openCloudWorkspace'
     | 'closeCloudWorkspace'
     | 'recentCloudWorkspaces'
@@ -132,6 +134,8 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     cloudRunsListForCard: () => Promise.resolve({ data: [], next_cursor: null }),
     cloudRunsCreate: () => Promise.reject(new Error('fake bridge: no cloud runs')),
     cloudRunsGet: () => Promise.reject(new Error('fake bridge: no cloud runs')),
+    cloudRunsStreamStart: () => Promise.resolve({ subscriptionId: 'fake' }),
+    cloudRunsStreamStop: () => Promise.resolve(),
     openCloudWorkspace: () => Promise.resolve({ ok: true }),
     closeCloudWorkspace: () => Promise.resolve(),
     recentCloudWorkspaces: () => Promise.resolve([]),

@@ -115,6 +115,17 @@ const api: KanbotsBridge = {
   }) => ipcRenderer.invoke('kanbots:cloud:runs-create', args) as Promise<AgentRunSummary>,
   cloudRunsGet: (args: { orgSlug: string; projectSlug: string; runId: string }) =>
     ipcRenderer.invoke('kanbots:cloud:runs-get', args) as Promise<AgentRunSummary>,
+  cloudRunsStreamStart: (args: {
+    orgSlug: string;
+    projectSlug: string;
+    runId: string;
+    lastEventId?: string;
+  }) =>
+    ipcRenderer.invoke('kanbots:cloud:runs-stream-start', args) as Promise<{
+      subscriptionId: string;
+    }>,
+  cloudRunsStreamStop: (subscriptionId: string) =>
+    ipcRenderer.invoke('kanbots:cloud:runs-stream-stop', subscriptionId) as Promise<void>,
   openCloudWorkspace: (args: { orgSlug: string; projectSlug: string }) =>
     ipcRenderer.invoke('kanbots:open-cloud-workspace', args) as Promise<
       { ok: true } | { ok: false; error: string }

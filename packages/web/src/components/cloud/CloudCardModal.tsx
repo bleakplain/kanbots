@@ -51,6 +51,11 @@ export function CloudCardModal({
   const [posting, setPosting] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
   const [dispatching, setDispatching] = useState(false);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [streamEvents, setStreamEvents] = useState<
+    Array<{ id: string; event: string; data: unknown }>
+  >([]);
+  const [streamError, setStreamError] = useState<string | null>(null);
 
   const refresh = useCallback(async (): Promise<void> => {
     const bridge = getBridge();
@@ -100,6 +105,65 @@ export function CloudCardModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // Live event stream for the selected run. Subscribes via the IPC
+  // bridge — main process holds the SSE connection and forwards each
+  // server-sent event back as a `kanbots:cloud:run-event` message.
+  useEffect(() => {
+    if (selectedRunId === null) return;
+    const bridge = getBridge();
+    if (!bridge) return;
+    let active = true;
+    let activeSubscriptionId: string | null = null;
+    setStreamEvents([]);
+    setStreamError(null);
+
+    const unsub = bridge.subscribe('kanbots:cloud:run-event', (payload) => {
+      if (!active) return;
+      const msg = payload as
+        | {
+            subscriptionId: string;
+            event?: { id: string; event: string; data: unknown };
+            error?: string;
+            done?: boolean;
+          }
+        | null;
+      if (!msg || msg.subscriptionId !== activeSubscriptionId) return;
+      if (typeof msg.error === 'string') {
+        setStreamError(msg.error);
+        return;
+      }
+      if (msg.done === true) return;
+      if (msg.event !== undefined) {
+        setStreamEvents((prev) => [...prev, msg.event!].slice(-200));
+      }
+    });
+
+    void bridge
+      .cloudRunsStreamStart({
+        orgSlug,
+        projectSlug,
+        runId: selectedRunId,
+      })
+      .then((result) => {
+        if (!active) {
+          void bridge.cloudRunsStreamStop(result.subscriptionId);
+          return;
+        }
+        activeSubscriptionId = result.subscriptionId;
+      })
+      .catch((err: unknown) => {
+        setStreamError(err instanceof Error ? err.message : String(err));
+      });
+
+    return () => {
+      active = false;
+      unsub();
+      if (activeSubscriptionId !== null) {
+        void bridge.cloudRunsStreamStop(activeSubscriptionId);
+      }
+    };
+  }, [selectedRunId, orgSlug, projectSlug]);
 
   function stopInner(e: MouseEvent<HTMLDivElement>): void {
     e.stopPropagation();
@@ -359,37 +423,110 @@ export function CloudCardModal({
                       gap: 6,
                     }}
                   >
-                    {state.runs.map((r) => (
-                      <li
-                        key={r.id}
-                        style={{
-                          padding: 8,
-                          border: '1px solid var(--hairline-soft)',
-                          borderRadius: 6,
-                          display: 'flex',
-                          gap: 12,
-                          fontSize: 12,
-                        }}
-                      >
-                        <span style={{ color: 'var(--ink-2)' }}>{r.cli}</span>
-                        <span style={{ color: 'var(--ink-3)' }}>{r.model}</span>
-                        <span
-                          style={{
-                            padding: '1px 6px',
-                            borderRadius: 4,
-                            background: 'var(--surface-2, rgba(0,0,0,0.04))',
-                            color: 'var(--ink-2)',
-                            fontFamily: 'ui-monospace, monospace',
-                            fontSize: 11,
-                          }}
-                        >
-                          {r.status}
-                        </span>
-                        <span style={{ color: 'var(--ink-3)', flex: 1, textAlign: 'right' }}>
-                          {new Date(r.started_at).toLocaleString()}
-                        </span>
-                      </li>
-                    ))}
+                    {state.runs.map((r) => {
+                      const isSelected = r.id === selectedRunId;
+                      return (
+                        <li key={r.id}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedRunId((cur) => (cur === r.id ? null : r.id))
+                            }
+                            style={{
+                              width: '100%',
+                              textAlign: 'left',
+                              padding: 8,
+                              border: '1px solid var(--hairline-soft)',
+                              borderRadius: 6,
+                              background: isSelected
+                                ? 'var(--surface-2, rgba(0,0,0,0.04))'
+                                : 'transparent',
+                              color: 'var(--ink)',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              gap: 12,
+                              fontSize: 12,
+                              alignItems: 'center',
+                            }}
+                          >
+                            <span style={{ color: 'var(--ink-2)' }}>{r.cli}</span>
+                            <span style={{ color: 'var(--ink-3)' }}>{r.model}</span>
+                            <span
+                              style={{
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                                background: 'var(--surface-2, rgba(0,0,0,0.04))',
+                                color: 'var(--ink-2)',
+                                fontFamily: 'ui-monospace, monospace',
+                                fontSize: 11,
+                              }}
+                            >
+                              {r.status}
+                            </span>
+                            <span
+                              style={{ color: 'var(--ink-3)', flex: 1, textAlign: 'right' }}
+                            >
+                              {new Date(r.started_at).toLocaleString()}
+                            </span>
+                            <span style={{ color: 'var(--ink-3)' }}>
+                              {isSelected ? '▾' : '▸'}
+                            </span>
+                          </button>
+                          {isSelected ? (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                marginBottom: 8,
+                                padding: 10,
+                                border: '1px solid var(--hairline-soft)',
+                                borderRadius: 6,
+                                background: 'var(--surface-2, rgba(0,0,0,0.02))',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: 'var(--ink-3)',
+                                  marginBottom: 6,
+                                }}
+                              >
+                                Live events ({streamEvents.length})
+                                {streamError !== null ? ` — ${streamError}` : ''}
+                              </div>
+                              {streamEvents.length === 0 ? (
+                                <div
+                                  style={{ color: 'var(--ink-3)', fontSize: 12 }}
+                                >
+                                  Waiting for events…
+                                </div>
+                              ) : (
+                                <pre
+                                  style={{
+                                    margin: 0,
+                                    fontFamily: 'ui-monospace, monospace',
+                                    fontSize: 11,
+                                    color: 'var(--ink-2)',
+                                    whiteSpace: 'pre-wrap',
+                                    maxHeight: 240,
+                                    overflow: 'auto',
+                                  }}
+                                >
+                                  {streamEvents
+                                    .map((ev) =>
+                                      `[${ev.event}] ${
+                                        typeof ev.data === 'string'
+                                          ? ev.data
+                                          : JSON.stringify(ev.data)
+                                      }`,
+                                    )
+                                    .join('\n')}
+                                </pre>
+                              )}
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
                 <button

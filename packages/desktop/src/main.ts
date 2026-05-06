@@ -138,6 +138,11 @@ let activeWorkspace: ActiveWorkspace | null = null;
  * renderer always sees exactly one active workspace.
  */
 let activeCloudWorkspace: ActiveCloudWorkspaceInfo | null = null;
+/**
+ * In-flight cloud run-event SSE streams keyed by subscription id.
+ * Renderer holds the matching ids; calling -stream-stop aborts.
+ */
+const cloudRunStreamControllers = new Map<string, AbortController>();
 let mainWindow: BrowserWindow | null = null;
 const chatWindows = new Set<BrowserWindow>();
 
@@ -1085,6 +1090,73 @@ function registerIpc(): void {
       args: { orgSlug: string; projectSlug: string; runId: string },
     ): Promise<AgentRunSummary> => {
       return cloudClient.runs.get(args.orgSlug, args.projectSlug, args.runId);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:runs-stream-start',
+    async (
+      event,
+      args: {
+        orgSlug: string;
+        projectSlug: string;
+        runId: string;
+        lastEventId?: string;
+      },
+    ): Promise<{ subscriptionId: string }> => {
+      const subscriptionId = randomUUID();
+      const controller = new AbortController();
+      cloudRunStreamControllers.set(subscriptionId, controller);
+      const sender = event.sender;
+
+      void (async () => {
+        try {
+          const iter = cloudClient.runs.stream(
+            args.orgSlug,
+            args.projectSlug,
+            args.runId,
+            {
+              ...(args.lastEventId !== undefined ? { lastEventId: args.lastEventId } : {}),
+              signal: controller.signal,
+            },
+          );
+          for await (const ev of iter) {
+            if (sender.isDestroyed()) break;
+            sender.send('kanbots:cloud:run-event', {
+              subscriptionId,
+              event: ev,
+            });
+          }
+          if (!sender.isDestroyed()) {
+            sender.send('kanbots:cloud:run-event', {
+              subscriptionId,
+              done: true,
+            });
+          }
+        } catch (err) {
+          if (controller.signal.aborted) return;
+          if (sender.isDestroyed()) return;
+          sender.send('kanbots:cloud:run-event', {
+            subscriptionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        } finally {
+          cloudRunStreamControllers.delete(subscriptionId);
+        }
+      })();
+
+      return { subscriptionId };
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:runs-stream-stop',
+    async (_event, subscriptionId: string): Promise<void> => {
+      const controller = cloudRunStreamControllers.get(subscriptionId);
+      if (controller !== undefined) {
+        controller.abort();
+        cloudRunStreamControllers.delete(subscriptionId);
+      }
     },
   );
 

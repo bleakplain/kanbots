@@ -132,6 +132,13 @@ export interface KanbotsBridge {
     projectSlug: string;
     runId: string;
   }): Promise<AgentRunSummary>;
+  cloudRunsStreamStart(args: {
+    orgSlug: string;
+    projectSlug: string;
+    runId: string;
+    lastEventId?: string;
+  }): Promise<{ subscriptionId: string }>;
+  cloudRunsStreamStop(subscriptionId: string): Promise<void>;
   openCloudWorkspace(args: {
     orgSlug: string;
     projectSlug: string;
