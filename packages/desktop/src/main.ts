@@ -61,6 +61,13 @@ import {
 } from './cloud-auth.js';
 import {
   createCloudClient,
+  type AgentRunListResponse,
+  type AgentRunSummary,
+  type AttachmentListResponse,
+  type CardSummary,
+  type CommentListResponse,
+  type CommentSummary,
+  type CreateAgentRunRequest,
   type CreateCardRequest,
   type CreateOrgRequest,
   type CreateOrgResponse,
@@ -1004,7 +1011,7 @@ function registerIpc(): void {
         body: UpdateCardRequest;
         ifMatch?: string;
       },
-    ) => {
+    ): Promise<CardSummary> => {
       const opts = args.ifMatch !== undefined ? { ifMatch: args.ifMatch } : undefined;
       return cloudClient.cards.update(
         args.orgSlug,
@@ -1013,6 +1020,71 @@ function registerIpc(): void {
         args.body,
         opts,
       );
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:comments-list',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; number: number },
+    ): Promise<CommentListResponse> => {
+      return cloudClient.comments.list(args.orgSlug, args.projectSlug, args.number);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:comments-add',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; number: number; body: string },
+    ): Promise<CommentSummary> => {
+      return cloudClient.comments.add(args.orgSlug, args.projectSlug, args.number, args.body);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:attachments-list',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; number: number },
+    ): Promise<AttachmentListResponse> => {
+      return cloudClient.attachments.list(args.orgSlug, args.projectSlug, args.number);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:runs-list-for-card',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; number: number },
+    ): Promise<AgentRunListResponse> => {
+      return cloudClient.runs.listForCard(args.orgSlug, args.projectSlug, args.number);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:runs-create',
+    async (
+      _event,
+      args: {
+        orgSlug: string;
+        projectSlug: string;
+        number: number;
+        body: CreateAgentRunRequest;
+      },
+    ): Promise<AgentRunSummary> => {
+      return cloudClient.runs.create(args.orgSlug, args.projectSlug, args.number, args.body);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:runs-get',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; runId: string },
+    ): Promise<AgentRunSummary> => {
+      return cloudClient.runs.get(args.orgSlug, args.projectSlug, args.runId);
     },
   );
 

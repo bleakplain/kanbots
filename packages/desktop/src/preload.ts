@@ -1,8 +1,14 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { ChannelArgs, ChannelName, ChannelResult } from '@kanbots/api';
 import type {
+  AgentRunListResponse,
+  AgentRunSummary,
+  AttachmentListResponse,
   CardListResponse,
   CardSummary,
+  CommentListResponse,
+  CommentSummary,
+  CreateAgentRunRequest,
   CreateCardRequest,
   CreateOrgRequest,
   CreateOrgResponse,
@@ -89,6 +95,26 @@ const api: KanbotsBridge = {
     body: UpdateCardRequest;
     ifMatch?: string;
   }) => ipcRenderer.invoke('kanbots:cloud:cards-update', args) as Promise<CardSummary>,
+  cloudCommentsList: (args: { orgSlug: string; projectSlug: string; number: number }) =>
+    ipcRenderer.invoke('kanbots:cloud:comments-list', args) as Promise<CommentListResponse>,
+  cloudCommentsAdd: (args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+    body: string;
+  }) => ipcRenderer.invoke('kanbots:cloud:comments-add', args) as Promise<CommentSummary>,
+  cloudAttachmentsList: (args: { orgSlug: string; projectSlug: string; number: number }) =>
+    ipcRenderer.invoke('kanbots:cloud:attachments-list', args) as Promise<AttachmentListResponse>,
+  cloudRunsListForCard: (args: { orgSlug: string; projectSlug: string; number: number }) =>
+    ipcRenderer.invoke('kanbots:cloud:runs-list-for-card', args) as Promise<AgentRunListResponse>,
+  cloudRunsCreate: (args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+    body: CreateAgentRunRequest;
+  }) => ipcRenderer.invoke('kanbots:cloud:runs-create', args) as Promise<AgentRunSummary>,
+  cloudRunsGet: (args: { orgSlug: string; projectSlug: string; runId: string }) =>
+    ipcRenderer.invoke('kanbots:cloud:runs-get', args) as Promise<AgentRunSummary>,
   openCloudWorkspace: (args: { orgSlug: string; projectSlug: string }) =>
     ipcRenderer.invoke('kanbots:open-cloud-workspace', args) as Promise<
       { ok: true } | { ok: false; error: string }

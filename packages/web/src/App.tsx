@@ -7,6 +7,7 @@ import { useTweaks } from './hooks/useTweaks.js';
 import { IssuesProvider, useIssues } from './hooks/useIssues.js';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.js';
 import { Board } from './pages/Board.js';
+import { CloudBoard } from './pages/CloudBoard.js';
 import { CloudWorkspacePicker } from './pages/CloudWorkspacePicker.js';
 import { ProvidersOverlay } from './pages/ProvidersOverlay.js';
 import { WorkspacePicker } from './pages/WorkspacePicker.js';
@@ -27,6 +28,9 @@ import type {
   RecentCloudWorkspace,
   RecentWorkspace,
 } from './desktop-bridge.js';
+// `ActiveCloudWorkspaceInfo` is consumed by `CloudBoard`; re-exported here
+// only to keep AppProps' contract documented for the bootstrap call site.
+export type { ActiveCloudWorkspaceInfo };
 import type { Config, Issue } from './types.js';
 
 interface AppProps {
@@ -275,10 +279,21 @@ export function App({
     );
   }
 
-  // Cloud-mode placeholder while P3 wires the cloud-backed Board.
-  // Shows the active project so the user knows the workspace switched.
+  // Cloud-mode shell. The CloudBoard pulls cards from the v1 API
+  // for the picked org+project; the local-mode Board is bypassed
+  // entirely.
   if (hasBridge && cloudWorkspace !== null) {
-    return <CloudWorkspaceShell info={cloudWorkspace} />;
+    return (
+      <CloudBoard
+        workspace={cloudWorkspace}
+        onSwitchWorkspace={async () => {
+          const bridge = getBridge();
+          if (!bridge) return;
+          await bridge.closeCloudWorkspace();
+          window.location.reload();
+        }}
+      />
+    );
   }
 
   // No workspace selected. If the user is signed in to cloud (and hasn't
@@ -327,54 +342,3 @@ export function App({
   );
 }
 
-/**
- * Placeholder for the cloud-mode shell. P3 replaces this with the
- * actual cloud-backed Board, comments, and run streaming. For now
- * it just confirms the workspace switched and offers a way back to
- * the picker so the user isn't trapped.
- */
-function CloudWorkspaceShell({ info }: { info: ActiveCloudWorkspaceInfo }) {
-  const [closing, setClosing] = useState(false);
-
-  async function close(): Promise<void> {
-    const bridge = getBridge();
-    if (!bridge) return;
-    setClosing(true);
-    await bridge.closeCloudWorkspace();
-    window.location.reload();
-  }
-
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        padding: 32,
-        gap: 16,
-        textAlign: 'center',
-        color: 'var(--ink)',
-      }}
-    >
-      <h1 style={{ fontSize: 24, margin: 0 }}>{info.projectDisplayName}</h1>
-      <p style={{ color: 'var(--ink-2)', margin: 0 }}>
-        {info.orgDisplayName} · cloud project
-      </p>
-      <p style={{ color: 'var(--ink-3)', maxWidth: 480, fontSize: 13 }}>
-        The cloud-backed board lands in P3. For now, this confirms the workspace is
-        connected to <code>{info.orgSlug}/{info.projectSlug}</code>. Cards, comments, and
-        run streaming will render here.
-      </p>
-      <button
-        type="button"
-        className="kb-btn ghost"
-        onClick={() => void close()}
-        disabled={closing}
-      >
-        {closing ? 'Closing…' : 'Switch workspace'}
-      </button>
-    </div>
-  );
-}

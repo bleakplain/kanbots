@@ -69,6 +69,12 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     | 'cloudCardsList'
     | 'cloudCardsCreate'
     | 'cloudCardsUpdate'
+    | 'cloudCommentsList'
+    | 'cloudCommentsAdd'
+    | 'cloudAttachmentsList'
+    | 'cloudRunsListForCard'
+    | 'cloudRunsCreate'
+    | 'cloudRunsGet'
     | 'openCloudWorkspace'
     | 'closeCloudWorkspace'
     | 'recentCloudWorkspaces'
@@ -120,6 +126,12 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     cloudCardsList: () => Promise.resolve({ data: [], next_cursor: null }),
     cloudCardsCreate: () => Promise.reject(new Error('fake bridge: no cloud cards')),
     cloudCardsUpdate: () => Promise.reject(new Error('fake bridge: no cloud cards')),
+    cloudCommentsList: () => Promise.resolve({ data: [], next_cursor: null }),
+    cloudCommentsAdd: () => Promise.reject(new Error('fake bridge: no cloud comments')),
+    cloudAttachmentsList: () => Promise.resolve({ data: [] }),
+    cloudRunsListForCard: () => Promise.resolve({ data: [], next_cursor: null }),
+    cloudRunsCreate: () => Promise.reject(new Error('fake bridge: no cloud runs')),
+    cloudRunsGet: () => Promise.reject(new Error('fake bridge: no cloud runs')),
     openCloudWorkspace: () => Promise.resolve({ ok: true }),
     closeCloudWorkspace: () => Promise.resolve(),
     recentCloudWorkspaces: () => Promise.resolve([]),

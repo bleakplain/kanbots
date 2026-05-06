@@ -14,8 +14,14 @@ import type {
   UploadAttachmentResult,
 } from '@kanbots/api';
 import type {
+  AgentRunListResponse,
+  AgentRunSummary,
+  AttachmentListResponse,
   CardListResponse,
   CardSummary,
+  CommentListResponse,
+  CommentSummary,
+  CreateAgentRunRequest,
   CreateCardRequest,
   CreateOrgRequest,
   CreateOrgResponse,
@@ -94,6 +100,38 @@ export interface KanbotsBridge {
     body: UpdateCardRequest;
     ifMatch?: string;
   }): Promise<CardSummary>;
+  cloudCommentsList(args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+  }): Promise<CommentListResponse>;
+  cloudCommentsAdd(args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+    body: string;
+  }): Promise<CommentSummary>;
+  cloudAttachmentsList(args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+  }): Promise<AttachmentListResponse>;
+  cloudRunsListForCard(args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+  }): Promise<AgentRunListResponse>;
+  cloudRunsCreate(args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+    body: CreateAgentRunRequest;
+  }): Promise<AgentRunSummary>;
+  cloudRunsGet(args: {
+    orgSlug: string;
+    projectSlug: string;
+    runId: string;
+  }): Promise<AgentRunSummary>;
   openCloudWorkspace(args: {
     orgSlug: string;
     projectSlug: string;
