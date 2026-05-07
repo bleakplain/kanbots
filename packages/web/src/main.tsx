@@ -16,6 +16,7 @@ import './styles/card.css';
 import './styles/rail.css';
 import './styles/inspector.css';
 import './styles/modals.css';
+import './styles/stats.css';
 import './styles/create-modal.css';
 import './styles/tray.css';
 import './styles/palette.css';

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api.js';
 import { getBridge } from '../../desktop-bridge.js';
 import { useFetch } from '../../hooks/useFetch.js';
@@ -12,6 +12,12 @@ export interface LeftRailProps {
   onSelectIssue: (n: number) => void;
   onOpenPalette?: () => void;
   authorLogin?: string | null;
+  onOpenArchive?: () => void;
+  onOpenStats?: () => void;
+  onOpenProviders?: () => void;
+  onOpenCloud?: () => void;
+  onOpenRules?: () => void;
+  onOpenSentry?: () => void;
 }
 
 function FolderCard({
@@ -202,9 +208,40 @@ export function LeftRail({
   onSelectIssue,
   onOpenPalette,
   authorLogin,
+  onOpenArchive,
+  onOpenStats,
+  onOpenProviders,
+  onOpenCloud,
+  onOpenRules,
+  onOpenSentry,
 }: LeftRailProps) {
   const ws = useWorkspace();
   const { issues } = useIssues();
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    function onPointerDown(e: PointerEvent): void {
+      if (!accountMenuRef.current) return;
+      if (e.target instanceof Node && accountMenuRef.current.contains(e.target)) return;
+      setAccountMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setAccountMenuOpen(false);
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [accountMenuOpen]);
+
+  function pick(handler: (() => void) | undefined): void {
+    setAccountMenuOpen(false);
+    handler?.();
+  }
 
   const liveAgents = issues.filter(
     (i) =>
@@ -243,25 +280,98 @@ export function LeftRail({
 
       <ChatList />
 
-      <div className="kb-rail-foot">
-        <div className="kb-rail-avatar" style={{ background: meColor }} aria-hidden>
-          {String(me).slice(0, 1).toUpperCase()}
-        </div>
-        <div className="kb-who">
-          <div className="kb-who-name">{String(me)}</div>
-          <div className="kb-who-status">
-            <span className="kb-pulse" />
-            {runs} run{runs === 1 ? '' : 's'} · {issues.length} issue{issues.length === 1 ? '' : 's'}
-          </div>
-        </div>
+      <div className="kb-rail-foot" ref={accountMenuRef}>
+        <button
+          type="button"
+          className="kb-rail-account"
+          onClick={() => setAccountMenuOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={accountMenuOpen}
+          title="Workspace menu"
+        >
+          <span className="kb-rail-avatar" style={{ background: meColor }} aria-hidden>
+            {String(me).slice(0, 1).toUpperCase()}
+          </span>
+          <span className="kb-who">
+            <span className="kb-who-name">{String(me)}</span>
+            <span className="kb-who-status">
+              <span className="kb-pulse" />
+              {runs} run{runs === 1 ? '' : 's'} · {issues.length} issue{issues.length === 1 ? '' : 's'}
+            </span>
+          </span>
+          <span className="kb-rail-account-caret" aria-hidden>
+            ⌃
+          </span>
+        </button>
         <button
           type="button"
           className="kb-rail-cmdk"
           onClick={onOpenPalette}
-          title="Command palette (Phase 8)"
+          title="Command palette (⌘K)"
         >
           ⌘K
         </button>
+
+        {accountMenuOpen ? (
+          <div className="kb-rail-account-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="kb-rail-account-item"
+              onClick={() => pick(onOpenArchive)}
+            >
+              <span className="kb-rail-account-icon" aria-hidden>📦</span>
+              Archive
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="kb-rail-account-item"
+              onClick={() => pick(onOpenStats)}
+            >
+              <span className="kb-rail-account-icon" aria-hidden>📊</span>
+              Stats &amp; cost
+            </button>
+            <div className="kb-rail-account-sep" role="separator" />
+            <button
+              type="button"
+              role="menuitem"
+              className="kb-rail-account-item"
+              onClick={() => pick(onOpenProviders)}
+            >
+              <span className="kb-rail-account-icon" aria-hidden>⚡</span>
+              Providers
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="kb-rail-account-item"
+              onClick={() => pick(onOpenCloud)}
+            >
+              <span className="kb-rail-account-icon" aria-hidden>☁</span>
+              Cloud
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="kb-rail-account-item"
+              onClick={() => pick(onOpenRules)}
+            >
+              <span className="kb-rail-account-icon" aria-hidden>📜</span>
+              House rules
+            </button>
+            <div className="kb-rail-account-sep" role="separator" />
+            <button
+              type="button"
+              role="menuitem"
+              className="kb-rail-account-item"
+              onClick={() => pick(onOpenSentry)}
+            >
+              <span className="kb-rail-account-icon" aria-hidden>⚙</span>
+              Settings
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

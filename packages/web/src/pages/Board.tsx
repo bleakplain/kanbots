@@ -10,16 +10,10 @@ import {
 } from '@dnd-kit/core';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
-import { ArchiveModal } from '../components/modals/ArchiveModal.js';
 import { AutopilotLaunchModal } from '../components/modals/AutopilotLaunchModal.js';
 import { CardPreview } from '../components/Card.js';
-import { CloudSettingsModal } from '../components/modals/CloudSettingsModal.js';
 import { Column, type SuggestActivity } from '../components/Column.js';
 import { PersonaPickerModal } from '../components/modals/PersonaPickerModal.js';
-import { HouseRulesSettingsModal } from '../components/modals/HouseRulesSettingsModal.js';
-import { ProvidersSettingsModal } from '../components/modals/ProvidersSettingsModal.js';
-import { SentrySettingsModal } from '../components/modals/SentrySettingsModal.js';
-import { Stats } from '../components/Stats.js';
 import { useBoardAgentStreams } from '../hooks/useBoardAgentStreams.js';
 import { useBoardFilters } from '../hooks/useBoardFilters.js';
 import { useFetch } from '../hooks/useFetch.js';
@@ -102,21 +96,6 @@ const plusIcon = (
   </svg>
 );
 
-const archiveBoxIcon = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M3 5h18v4H3z" />
-    <path d="M5 9v10h14V9" />
-    <path d="M10 13h4" />
-  </svg>
-);
-
-const settingsIcon = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <circle cx="12" cy="12" r="3" />
-    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-  </svg>
-);
-
 export interface BoardProps {
   onOpenDetail?: (issueNumber: number) => void;
   onOpenCreate?: () => void;
@@ -166,23 +145,9 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
   const [suggestStartedAt, setSuggestStartedAt] = useState<string | null>(null);
   const [personaPickerOpen, setPersonaPickerOpen] = useState(false);
   const [autopilotLaunchOpen, setAutopilotLaunchOpen] = useState(false);
-  const [archiveOpen, setArchiveOpen] = useState(false);
-  const [sentrySettingsOpen, setSentrySettingsOpen] = useState(false);
-  const [providersSettingsOpen, setProvidersSettingsOpen] = useState(false);
-  const [cloudSettingsOpen, setCloudSettingsOpen] = useState(false);
-  const [houseRulesOpen, setHouseRulesOpen] = useState(false);
-  const [statsOpen, setStatsOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useSelection();
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-
-  useEffect(() => {
-    function onOpen(): void {
-      setHouseRulesOpen(true);
-    }
-    window.addEventListener('kanbots:open-house-rules', onOpen);
-    return () => window.removeEventListener('kanbots:open-house-rules', onOpen);
-  }, []);
 
   const list = filterApi.filtered;
   const activeRunIds = useMemo(
@@ -351,62 +316,10 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
           <button
             type="button"
             className="kb-btn ghost"
-            onClick={() => setArchiveOpen(true)}
-            title="Browse archived tasks"
-          >
-            {archiveBoxIcon} Archive
-          </button>
-          <button
-            type="button"
-            className="kb-btn ghost"
             onClick={() => setAutopilotLaunchOpen(true)}
             title="Start an autopilot session"
           >
             Autopilot
-          </button>
-          <button
-            type="button"
-            className="kb-btn ghost"
-            onClick={() => setStatsOpen(true)}
-            title="View cost tracking stats"
-          >
-            Stats
-          </button>
-          <button
-            type="button"
-            className="kb-btn ghost"
-            onClick={() => setProvidersSettingsOpen(true)}
-            title="AI providers"
-            aria-label="AI providers"
-          >
-            Providers
-          </button>
-          <button
-            type="button"
-            className="kb-btn ghost"
-            onClick={() => setCloudSettingsOpen(true)}
-            title="Kanbots Cloud account"
-            aria-label="Kanbots Cloud account"
-          >
-            Cloud
-          </button>
-          <button
-            type="button"
-            className="kb-btn ghost"
-            onClick={() => setHouseRulesOpen(true)}
-            title="Workspace house rules — prepended to every run"
-            aria-label="House rules"
-          >
-            Rules
-          </button>
-          <button
-            type="button"
-            className="kb-btn ghost"
-            onClick={() => setSentrySettingsOpen(true)}
-            title="Sentry integration settings"
-            aria-label="Sentry settings"
-          >
-            {settingsIcon}
           </button>
           <button
             type="button"
@@ -552,27 +465,6 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
           onClose={() => setAutopilotLaunchOpen(false)}
           onStarted={() => dispatchIssuesRefetch()}
         />
-      ) : null}
-      {archiveOpen ? (
-        <ArchiveModal
-          onClose={() => setArchiveOpen(false)}
-          onOpenDetail={(n) => onOpenDetail?.(n)}
-        />
-      ) : null}
-      {providersSettingsOpen ? (
-        <ProvidersSettingsModal onClose={() => setProvidersSettingsOpen(false)} />
-      ) : null}
-      {cloudSettingsOpen ? (
-        <CloudSettingsModal onClose={() => setCloudSettingsOpen(false)} />
-      ) : null}
-      {sentrySettingsOpen ? (
-        <SentrySettingsModal onClose={() => setSentrySettingsOpen(false)} />
-      ) : null}
-      {houseRulesOpen ? (
-        <HouseRulesSettingsModal onClose={() => setHouseRulesOpen(false)} />
-      ) : null}
-      {statsOpen ? (
-        <Stats onClose={() => setStatsOpen(false)} />
       ) : null}
     </DndContext>
   );

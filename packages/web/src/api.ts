@@ -299,6 +299,12 @@ export const api = {
     invoke('cost:usage', undefined),
   costBreakdown: (): Promise<ChannelResult<'cost:breakdown'>> =>
     invoke('cost:breakdown', undefined),
+  costRollup: (
+    args: ChannelArgs<'analytics:rollup'> = {},
+  ): Promise<ChannelResult<'analytics:rollup'>> => invoke('analytics:rollup', args),
+  costTimeSeries: (
+    args: ChannelArgs<'analytics:time-series'>,
+  ): Promise<ChannelResult<'analytics:time-series'>> => invoke('analytics:time-series', args),
   resolveCard: (cardId: number, value: string): Promise<ResolveCardResult> =>
     invoke('cards:resolve', { cardId, value }),
   dismissCard: (cardId: number): Promise<DismissCardResult> =>

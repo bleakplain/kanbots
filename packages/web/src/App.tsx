@@ -19,6 +19,12 @@ import { CloudFirstRunPrompt } from './components/CloudFirstRunPrompt.js';
 import { TaskDetailModal } from './components/modals/TaskDetailModal.js';
 import { TaskCreateModal } from './components/modals/TaskCreateModal.js';
 import { SplitModal } from './components/modals/SplitModal.js';
+import { ArchiveModal } from './components/modals/ArchiveModal.js';
+import { CloudSettingsModal } from './components/modals/CloudSettingsModal.js';
+import { HouseRulesSettingsModal } from './components/modals/HouseRulesSettingsModal.js';
+import { ProvidersSettingsModal } from './components/modals/ProvidersSettingsModal.js';
+import { SentrySettingsModal } from './components/modals/SentrySettingsModal.js';
+import { Stats } from './components/Stats.js';
 import { Tray } from './components/tray/Tray.js';
 import { Palette } from './components/palette/Palette.js';
 import { TweaksPanel } from './components/tweaks/TweaksPanel.js';
@@ -83,7 +89,21 @@ function ShellHost({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [splitTargetNumber, setSplitTargetNumber] = useState<number | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [providersSettingsOpen, setProvidersSettingsOpen] = useState(false);
+  const [cloudSettingsOpen, setCloudSettingsOpen] = useState(false);
+  const [houseRulesOpen, setHouseRulesOpen] = useState(false);
+  const [sentrySettingsOpen, setSentrySettingsOpen] = useState(false);
   const { mutate, issues } = useIssues();
+
+  useEffect(() => {
+    function onOpen(): void {
+      setHouseRulesOpen(true);
+    }
+    window.addEventListener('kanbots:open-house-rules', onOpen);
+    return () => window.removeEventListener('kanbots:open-house-rules', onOpen);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.kbRail = tweaks.showRail ? 'on' : 'off';
@@ -172,6 +192,12 @@ function ShellHost({
                 selectedNumber={selectedNumber}
                 onSelectIssue={setSelectedNumber}
                 onOpenPalette={() => setPaletteOpen(true)}
+                onOpenArchive={() => setArchiveOpen(true)}
+                onOpenStats={() => setStatsOpen(true)}
+                onOpenProviders={() => setProvidersSettingsOpen(true)}
+                onOpenCloud={() => setCloudSettingsOpen(true)}
+                onOpenRules={() => setHouseRulesOpen(true)}
+                onOpenSentry={() => setSentrySettingsOpen(true)}
               />
             ) : null
           }
@@ -213,6 +239,22 @@ function ShellHost({
           }
           onClose={() => setSplitTargetNumber(null)}
         />
+      ) : null}
+      {archiveOpen ? (
+        <ArchiveModal onClose={() => setArchiveOpen(false)} onOpenDetail={openDetail} />
+      ) : null}
+      {statsOpen ? <Stats onClose={() => setStatsOpen(false)} /> : null}
+      {providersSettingsOpen ? (
+        <ProvidersSettingsModal onClose={() => setProvidersSettingsOpen(false)} />
+      ) : null}
+      {cloudSettingsOpen ? (
+        <CloudSettingsModal onClose={() => setCloudSettingsOpen(false)} />
+      ) : null}
+      {houseRulesOpen ? (
+        <HouseRulesSettingsModal onClose={() => setHouseRulesOpen(false)} />
+      ) : null}
+      {sentrySettingsOpen ? (
+        <SentrySettingsModal onClose={() => setSentrySettingsOpen(false)} />
       ) : null}
       {tweaksOpen ? (
         <TweaksPanel
