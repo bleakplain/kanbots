@@ -348,8 +348,10 @@ export const api = {
     invoke('agent-runs:stats', { runId }),
   listIssueRuns: (issueNumber: number): Promise<AgentRun[]> =>
     invoke('issues:list-runs', { number: issueNumber }),
-  listPendingDecisions: (): Promise<PendingDecisionPayload[]> =>
-    invoke('decisions:pending', undefined),
+  listPendingDecisions: (): Promise<PendingDecisionPayload[]> => {
+    if (cloudCtx !== null) return Promise.resolve([]);
+    return invoke('decisions:pending', undefined);
+  },
   workspace: async (): Promise<Workspace> => {
     if (cloudCtx !== null) {
       // Synthetic — phase 3 ships a real project-config endpoint that will
@@ -370,7 +372,10 @@ export const api = {
     invoke('workspace:get-house-rules', undefined),
   setWorkspaceHouseRules: (input: WorkspaceHouseRules): Promise<WorkspaceHouseRules> =>
     invoke('workspace:set-house-rules', input),
-  listFolders: (): Promise<WorkspaceFolderPayload[]> => invoke('folders:list', undefined),
+  listFolders: (): Promise<WorkspaceFolderPayload[]> => {
+    if (cloudCtx !== null) return Promise.resolve([]);
+    return invoke('folders:list', undefined);
+  },
   addFolder: (input: {
     name: string;
     path: string;
@@ -530,7 +535,10 @@ export const api = {
     invoke('providers:test-connection', input),
   setProviderDefaults: (input: ProviderSettingsInput): Promise<ProvidersPayload> =>
     invoke('providers:set-defaults', input),
-  listChats: (): Promise<ChatConversation[]> => invoke('chat:list', undefined),
+  listChats: (): Promise<ChatConversation[]> => {
+    if (cloudCtx !== null) return Promise.resolve([]);
+    return invoke('chat:list', undefined);
+  },
   createChat: (title?: string): Promise<ChatPayload> => {
     const args: ChannelArgs<'chat:create'> = title !== undefined ? { title } : {};
     return invoke('chat:create', args);
