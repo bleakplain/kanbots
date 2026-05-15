@@ -46,6 +46,46 @@
   border-color: var(--ink-2);
 }
 
+/* Collapsible-section header (clickable button form of .kb-rail-label). */
+.kb-rail-label-button {
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  /* Match .kb-rail-label visual rules even though the element is a button. */
+  font-family: inherit;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-3);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 8px;
+}
+.kb-rail-label-button:hover .kb-rail-label-text { color: var(--ink-2); }
+.kb-rail-label-caret {
+  display: inline-flex;
+  justify-content: center;
+  width: 10px;
+  font-size: 10px;
+  color: var(--ink-3);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.kb-rail-label-text { flex: 1 1 auto; }
+.kb-rail-label-trailing {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.kb-rail-collapsible.is-collapsed { padding-bottom: 4px; }
+.kb-rail-collapsible.is-collapsed .kb-rail-label-button { padding-bottom: 4px; }
+
 /* Workspace card */
 .kb-workspace {
   display: flex;

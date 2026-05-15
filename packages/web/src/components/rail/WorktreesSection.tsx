@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getBridge } from '../../desktop-bridge.js';
+import { CollapsibleSection } from './CollapsibleSection.js';
 
 /**
  * Active worktrees panel. Lists every entry from `git worktree list`
@@ -137,13 +138,16 @@ export function WorktreesSection() {
   if (worktrees.length === 0) return null;
 
   return (
-    <div className="kb-rail-section kb-rail-worktrees">
-      <div className="kb-rail-label">
-        Worktrees
+    <CollapsibleSection
+      storageKey="worktrees"
+      className="kb-rail-worktrees"
+      label="Worktrees"
+      trailing={
         <span className="kb-rail-label-count" aria-label={`${worktrees.length} total`}>
           {worktrees.length}
         </span>
-      </div>
+      }
+    >
       {error ? <div className="kb-rail-worktree-error">{error}</div> : null}
       <div className="kb-rail-worktree-list" ref={menuRef}>
         {worktrees.map((w) => {
@@ -217,6 +221,6 @@ export function WorktreesSection() {
           );
         })}
       </div>
-    </div>
+    </CollapsibleSection>
   );
 }

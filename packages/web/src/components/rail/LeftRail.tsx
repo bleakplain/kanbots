@@ -6,6 +6,7 @@ import { useIssues } from '../../hooks/useIssues.js';
 import { useWorkspace } from '../../hooks/useWorkspace.js';
 import { ageString, colorForLogin } from '../../labels.js';
 import type { ChatConversation, Issue } from '../../types.js';
+import { CollapsibleSection } from './CollapsibleSection.js';
 import { WorkspaceTree } from './WorkspaceTree.js';
 import { WorktreesSection } from './WorktreesSection.js';
 
@@ -108,21 +109,26 @@ function ChatList() {
   if (!bridge) return null;
 
   return (
-    <div className="kb-rail-section kb-rail-chats">
-      <div className="kb-rail-chats-head">
-        <span className="kb-rail-label">Chats</span>
+    <CollapsibleSection
+      storageKey="chats"
+      className="kb-rail-chats"
+      label="Chats"
+      trailing={
         <button
           type="button"
           className="kb-rail-chats-new"
           title="Start a new chat"
           aria-label="Start a new chat"
-          onClick={() => {
+          onClick={(e) => {
+            // Don't let the click bubble up and toggle the section.
+            e.stopPropagation();
             void bridge.openChat?.(null);
           }}
         >
           +
         </button>
-      </div>
+      }
+    >
       <input
         type="search"
         className="kb-rail-chats-search"
@@ -175,7 +181,7 @@ function ChatList() {
           </button>
         ) : null}
       </div>
-    </div>
+    </CollapsibleSection>
   );
 }
 
@@ -236,26 +242,36 @@ export function LeftRail({
 
   return (
     <div className="kb-rail">
-      <div className="kb-rail-section kb-rail-tree-section">
-        <div className="kb-rail-label">
-          Workspace
-          {ws.workspace.activeAgents > 0 ? (
+      <CollapsibleSection
+        storageKey="workspace"
+        className="kb-rail-tree-section"
+        label="Workspace"
+        trailing={
+          ws.workspace.activeAgents > 0 ? (
             <span className="kb-rail-label-pulse" aria-label={`${ws.workspace.activeAgents} active agents`}>
               <span className="kb-pulse" />
               {ws.workspace.activeAgents}
             </span>
-          ) : null}
-        </div>
+          ) : null
+        }
+      >
         <WorkspaceTree
           header={{ name: headerName, ...(headerSubtitle ? { subtitle: headerSubtitle } : {}) }}
         />
-      </div>
+      </CollapsibleSection>
 
       <WorktreesSection />
 
       {liveAgents.length > 0 ? (
-        <div className="kb-rail-section">
-          <div className="kb-rail-label">Live agents</div>
+        <CollapsibleSection
+          storageKey="live-agents"
+          label="Live agents"
+          trailing={
+            <span className="kb-rail-label-count" aria-label={`${liveAgents.length} live`}>
+              {liveAgents.length}
+            </span>
+          }
+        >
           {liveAgents.map((issue) => (
             <LiveAgentRow
               key={issue.number}
@@ -264,7 +280,7 @@ export function LeftRail({
               onClick={() => onSelectIssue(issue.number)}
             />
           ))}
-        </div>
+        </CollapsibleSection>
       ) : null}
 
       <ChatList />
