@@ -1,5 +1,6 @@
 import type { CloudClient } from '@kanbots/cloud-client';
 import {
+  createWorktree,
   startAgentRun,
   type AgentRunProvider,
   type StreamEvent,
@@ -11,11 +12,17 @@ import {
  *
  *   1. POST /orgs/:slug/projects/:slug/cards/:n/runs  → creates a pending run
  *   2. POST /agent/runs/:id/claim                     → marks claimed
- *   3. spawn the user's local Claude/Codex CLI in the bound repo
- *   4. for each parsed StreamEvent, batch + POST /agent/runs/:id/events
- *   5. when the CLI exits, drain the buffer and (if no terminal event was
+ *   3. create an isolated git worktree at
+ *      .kanbots/worktrees/issue-<N>-<R>/ (R = cloud run id) so the agent
+ *      doesn't trample on whatever's in the user's main checkout, and
+ *      the FileChangeViewer can attribute touched files back to a task
+ *   4. spawn the user's local Claude/Codex CLI in that worktree
+ *   5. for each parsed StreamEvent, batch + POST /agent/runs/:id/events
+ *   6. when the CLI exits, drain the buffer and (if no terminal event was
  *      emitted by the parser) post a synthetic `result` event so the cloud
- *      transitions the run row.
+ *      transitions the run row. The worktree is intentionally left in
+ *      place — the user reviews / merges / discards it via the Worktrees
+ *      rail section.
  *
  * Event flush strategy: flush every 50 events or every 500 ms (whichever
  * trips first) so the cloud-side board sees progress quickly without
@@ -36,6 +43,25 @@ const PROVIDER_TO_PROVIDER_TAG: Record<AgentRunProvider, string> = {
   'codex-cli': 'openai',
 };
 
+/**
+ * Cloud run ids are KSUIDs (26 chars). Using the full id keeps the
+ * mapping injective but makes the worktree path noisy. Use the last 10
+ * chars — KSUIDs have a time prefix, so the tail carries the random
+ * uniqueness component and collisions across a single user's worktrees
+ * are vanishingly unlikely.
+ */
+function worktreeSuffixForRun(runId: string): string {
+  return runId.slice(-10);
+}
+
+function worktreePathFor(repoRoot: string, cardNumber: number, runId: string): string {
+  return `${repoRoot}/.kanbots/worktrees/issue-${cardNumber}-${worktreeSuffixForRun(runId)}`;
+}
+
+function branchNameFor(cardNumber: number, runId: string): string {
+  return `kanbots/issue-${cardNumber}-${worktreeSuffixForRun(runId)}`;
+}
+
 export interface DispatchCloudRunOptions {
   cloudClient: CloudClient;
   orgSlug: string;
@@ -49,10 +75,18 @@ export interface DispatchCloudRunOptions {
   cwd: string;
   /** Optional sink for stream events (e.g. forward to renderer). */
   onEvent?: (event: StreamEvent) => void;
+  /**
+   * Optional sink for Edit/Write/MultiEdit tool calls, used to drive the
+   * live "file touched" badge in the workspace tree. The dispatcher
+   * supplies the worktree path so callers don't have to know it.
+   */
+  onFileTouched?: (payload: { filePath: string; worktreePath: string }) => void;
 }
 
 export interface CloudRunHandle {
   runId: string;
+  /** Absolute path of the per-run worktree the CLI is running in. */
+  worktreePath: string;
   /** Resolves once the CLI process exits and the final flush completes. */
   done: Promise<CloudRunSummary>;
   /** Stop the CLI gracefully. */
@@ -61,6 +95,7 @@ export interface CloudRunHandle {
 
 export interface CloudRunSummary {
   runId: string;
+  worktreePath: string;
   /** Final status reported by the cloud after terminal event landed. */
   status: string;
   exitCode: number | null;
@@ -137,7 +172,20 @@ export async function startCloudRun(
     );
   }
 
-  // Step 3 — buffer + flush plumbing.
+  // Step 3 — create the per-run worktree. If this fails we surface the
+  // error to the caller instead of silently running in the main checkout
+  // (the whole point of this dispatcher is task-isolated runs). The
+  // pending cloud row is left alone; the renderer can see it failed
+  // because no events ever arrive.
+  const worktreePath = worktreePathFor(opts.cwd, opts.cardNumber, run.id);
+  const branchName = branchNameFor(opts.cardNumber, run.id);
+  await createWorktree({
+    repoPath: opts.cwd,
+    branch: branchName,
+    worktreePath,
+  });
+
+  // Step 4 — buffer + flush plumbing.
   const buffer: BufferedEvent[] = [];
   let flushing = false;
   let flushTimer: NodeJS.Timeout | null = null;
@@ -174,9 +222,9 @@ export async function startCloudRun(
     }
   }
 
-  // Step 4 — spawn the CLI.
+  // Step 5 — spawn the CLI inside the per-run worktree.
   const handle = startAgentRun({
-    cwd: opts.cwd,
+    cwd: worktreePath,
     prompt: opts.prompt,
     ...(opts.appendSystemPrompt !== undefined
       ? { appendSystemPrompt: opts.appendSystemPrompt }
@@ -194,6 +242,29 @@ export async function startCloudRun(
       }
     }
     if (event.kind === 'result') sawTerminalResult = true;
+
+    // Surface edit-tool calls to the workspace tree so the file's
+    // badge flips before the next git poll. Lives here (not in main.ts)
+    // because the dispatcher is the one that knows which worktree path
+    // the run is actually editing — main.ts only knows the bound-repo
+    // root.
+    if (opts.onFileTouched !== undefined && event.kind === 'tool_use') {
+      if (/^(Edit|Write|MultiEdit)$/i.test(event.name)) {
+        const input = event.input as Record<string, unknown> | null | undefined;
+        const raw =
+          input !== null && input !== undefined
+            ? input['file_path'] ?? input['filePath'] ?? input['path']
+            : undefined;
+        if (typeof raw === 'string' && raw.length > 0) {
+          try {
+            opts.onFileTouched({ filePath: raw, worktreePath });
+          } catch {
+            // listener crash mustn't tear down the run
+          }
+        }
+      }
+    }
+
     const wire = streamEventToWire(event);
     if (wire === null) return;
     buffer.push(wire);
@@ -252,11 +323,12 @@ export async function startCloudRun(
       // best-effort
     }
 
-    return { runId: run.id, status: finalStatus, exitCode: summary.exitCode };
+    return { runId: run.id, worktreePath, status: finalStatus, exitCode: summary.exitCode };
   })();
 
   return {
     runId: run.id,
+    worktreePath,
     done,
     stop: () => handle.stop(),
   };

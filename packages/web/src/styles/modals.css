@@ -1863,6 +1863,12 @@
   letter-spacing: 0.08em;
   color: var(--ink-3);
 }
+.kb-fcv-reply-hint-inline {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10.5px;
+  color: oklch(0.78 0.13 70);
+}
 .kb-fcv-reply-text {
   font-family: var(--ff-mono);
   font-size: 12.5px;

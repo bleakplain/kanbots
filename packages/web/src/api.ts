@@ -94,6 +94,14 @@ export function setCloudCtx(ctx: CloudCtx | null): void {
 export function isCloudMode(): boolean {
   return cloudCtx !== null;
 }
+/**
+ * Read-only accessor for the cloud context. Mostly used by mode-aware
+ * UI that needs the org/project slugs to call the cloud bridge directly
+ * (e.g. FileChangeViewer's restart-agent flow).
+ */
+export function getCloudCtx(): CloudCtx | null {
+  return cloudCtx;
+}
 
 function getCloudBridge() {
   if (typeof window === 'undefined' || !window.kanbots) {

@@ -1,7 +1,55 @@
 import { useCallback, useEffect, useState, type MouseEvent } from 'react';
-import { api } from '../../api.js';
+import { api, getCloudCtx } from '../../api.js';
 import { getBridge } from '../../desktop-bridge.js';
 import { InlineDiff } from '../run/InlineDiff.js';
+
+const TERMINAL_RUN_STATUSES = new Set(['succeeded', 'failed', 'stopped', 'timed_out']);
+
+function isActiveStatus(status: string): boolean {
+  return !TERMINAL_RUN_STATUSES.has(status);
+}
+
+/**
+ * Snapshot of the most recent thread context (card body + N most recent
+ * comments) used to feed a restarted agent so it can pick up where the
+ * previous run left off. The cloud CLI doesn't read cloud comments
+ * itself, so we splice them into `appendSystemPrompt` at restart time.
+ */
+const RESTART_CONTEXT_COMMENT_LIMIT = 12;
+
+async function buildRestartContext(
+  orgSlug: string,
+  projectSlug: string,
+  issueNumber: number,
+): Promise<string | null> {
+  const bridge = getBridge();
+  if (!bridge) return null;
+  try {
+    const card = await bridge.cloudCardsGet({ orgSlug, projectSlug, number: issueNumber });
+    const commentsResp = await bridge.cloudCommentsList({
+      orgSlug,
+      projectSlug,
+      number: issueNumber,
+    });
+    const lines: string[] = [];
+    lines.push(`This is a continuation of task #${issueNumber}: ${card.title}`);
+    if (card.body) {
+      lines.push('', 'Task description:', card.body);
+    }
+    const recent = commentsResp.data.slice(-RESTART_CONTEXT_COMMENT_LIMIT);
+    if (recent.length > 0) {
+      lines.push('', 'Recent thread (oldest first):');
+      for (const c of recent) {
+        lines.push(`---`);
+        lines.push(c.body);
+      }
+    }
+    lines.push('', 'Continue from the latest message in the thread.');
+    return lines.join('\n');
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Per-file change viewer. Opens when the user clicks a touched file in
@@ -36,20 +84,20 @@ interface DiffViewState {
 }
 
 /**
- * `.kanbots/worktrees/issue-<n>-<r>` is the convention used by the
- * local supervisor (`defaultWorktreePath` in @kanbots/dispatcher). The
- * cloud dispatcher currently runs in the bound repo directly so cloud-
- * mode worktrees won't match this pattern — that's fine; the modal
- * just renders the diff without a task link.
+ * `.kanbots/worktrees/issue-<n>-<r>` is the convention used by both
+ * the local supervisor (`defaultWorktreePath` in @kanbots/dispatcher,
+ * numeric runId) and the cloud dispatcher (last-10-chars of the
+ * KSUID, alphanumeric). The regex accepts both shapes; the caller
+ * treats runId as opaque.
  */
 function parseWorktreeContext(
   worktreePath: string,
-): { issueNumber: number; runId: number } | null {
-  const m = /\.kanbots\/worktrees\/issue-(\d+)-(\d+)\/?$/.exec(worktreePath);
+): { issueNumber: number; runId: string } | null {
+  const m = /\.kanbots\/worktrees\/issue-(\d+)-([A-Za-z0-9]+)\/?$/.exec(worktreePath);
   if (m === null) return null;
   const issueNumber = Number.parseInt(m[1] ?? '', 10);
-  const runId = Number.parseInt(m[2] ?? '', 10);
-  if (!Number.isFinite(issueNumber) || !Number.isFinite(runId)) return null;
+  const runId = m[2] ?? '';
+  if (!Number.isFinite(issueNumber) || runId.length === 0) return null;
   return { issueNumber, runId };
 }
 
@@ -85,10 +133,13 @@ function WorktreeDiff({ worktreePath, filePath, onMessageSent }: WorktreeDiffPro
     error: null,
   });
   const ctx = parseWorktreeContext(worktreePath);
+  const cloudCtx = getCloudCtx();
   const [reply, setReply] = useState('');
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [posted, setPosted] = useState(false);
+  /** null = unknown / not-yet-loaded; boolean = resolved. */
+  const [hasActiveRun, setHasActiveRun] = useState<boolean | null>(null);
 
   useEffect(() => {
     const bridge = getBridge();
@@ -114,26 +165,74 @@ function WorktreeDiff({ worktreePath, filePath, onMessageSent }: WorktreeDiffPro
     };
   }, [worktreePath, filePath]);
 
-  const sendReply = useCallback(async () => {
-    if (ctx === null) return;
-    const body = reply.trim();
-    if (body.length === 0 || posting) return;
-    setPosting(true);
-    setPostError(null);
-    try {
-      // postMessage already cloud-routes via cloudCommentsAdd in cloud
-      // mode and goes through issues:post-message locally — same fn,
-      // works for both surfaces.
-      await api.postMessage(ctx.issueNumber, body, { dispatch: false });
-      setReply('');
-      setPosted(true);
-      onMessageSent?.();
-    } catch (err) {
-      setPostError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPosting(false);
+  // Probe the cloud for an active run on this task so the reply form
+  // can offer "Send & restart agent" when the prior run has finished.
+  // Only meaningful in cloud mode — local mode keeps the comment-only
+  // path because the local supervisor handles dispatch itself.
+  useEffect(() => {
+    if (ctx === null || cloudCtx === null) {
+      setHasActiveRun(null);
+      return;
     }
-  }, [ctx, reply, posting, onMessageSent]);
+    const bridge = getBridge();
+    if (!bridge) return;
+    let cancelled = false;
+    void bridge
+      .cloudRunsListForCard({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        number: ctx.issueNumber,
+      })
+      .then((resp) => {
+        if (cancelled) return;
+        setHasActiveRun(resp.data.some((r) => isActiveStatus(r.status)));
+      })
+      .catch(() => {
+        if (!cancelled) setHasActiveRun(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx, cloudCtx]);
+
+  const send = useCallback(
+    async (action: 'send' | 'send-restart') => {
+      if (ctx === null) return;
+      const body = reply.trim();
+      if (body.length === 0 || posting) return;
+      setPosting(true);
+      setPostError(null);
+      try {
+        await api.postMessage(ctx.issueNumber, body, { dispatch: false });
+        if (action === 'send-restart' && cloudCtx !== null) {
+          const bridge = getBridge();
+          if (bridge !== null) {
+            const context = await buildRestartContext(
+              cloudCtx.orgSlug,
+              cloudCtx.projectSlug,
+              ctx.issueNumber,
+            );
+            await bridge.cloudStartAgentRun({
+              orgSlug: cloudCtx.orgSlug,
+              projectSlug: cloudCtx.projectSlug,
+              number: ctx.issueNumber,
+              prompt: body,
+              ...(context !== null ? { appendSystemPrompt: context } : {}),
+            });
+            setHasActiveRun(true);
+          }
+        }
+        setReply('');
+        setPosted(true);
+        onMessageSent?.();
+      } catch (err) {
+        setPostError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setPosting(false);
+      }
+    },
+    [ctx, reply, posting, cloudCtx, onMessageSent],
+  );
 
   const worktreeLabel = worktreePath.split('/').pop() ?? worktreePath;
 
@@ -173,7 +272,14 @@ function WorktreeDiff({ worktreePath, filePath, onMessageSent }: WorktreeDiffPro
 
       {ctx !== null ? (
         <div className="kb-fcv-reply">
-          <label className="kb-fcv-reply-label">Talk to the agent that made this change</label>
+          <label className="kb-fcv-reply-label">
+            Talk to the agent that made this change
+            {hasActiveRun === false ? (
+              <span className="kb-fcv-reply-hint-inline">
+                {' '}— prior run has ended
+              </span>
+            ) : null}
+          </label>
           <textarea
             className="kb-fcv-reply-text"
             placeholder={`Reply to thread for #${ctx.issueNumber}…`}
@@ -184,7 +290,10 @@ function WorktreeDiff({ worktreePath, filePath, onMessageSent }: WorktreeDiffPro
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                 e.preventDefault();
-                void sendReply();
+                // Default keyboard action picks the most useful one:
+                // restart agent if there isn't a live one, else just send.
+                const action = hasActiveRun === false ? 'send-restart' : 'send';
+                void send(action);
               }
             }}
           />
@@ -194,14 +303,41 @@ function WorktreeDiff({ worktreePath, filePath, onMessageSent }: WorktreeDiffPro
               <span className="kb-fcv-ok">Sent.</span>
             ) : null}
             <span className="kb-fcv-hint">⌘⏎ to send</span>
-            <button
-              type="button"
-              className="kb-btn primary"
-              onClick={() => void sendReply()}
-              disabled={posting || reply.trim().length === 0}
-            >
-              {posting ? 'Sending…' : 'Send'}
-            </button>
+            {/* In cloud mode with no live run, expose the restart path
+                explicitly so the user knows the comment will spawn a
+                fresh agent. Comment-only "Send" stays available so
+                they can leave a note without dispatching. */}
+            {cloudCtx !== null && hasActiveRun === false ? (
+              <>
+                <button
+                  type="button"
+                  className="kb-btn"
+                  onClick={() => void send('send')}
+                  disabled={posting || reply.trim().length === 0}
+                  title="Post the comment without starting a new agent run."
+                >
+                  Send only
+                </button>
+                <button
+                  type="button"
+                  className="kb-btn primary"
+                  onClick={() => void send('send-restart')}
+                  disabled={posting || reply.trim().length === 0}
+                  title="Post the comment and start a new agent run that picks up the thread."
+                >
+                  {posting ? 'Restarting…' : 'Send & restart agent'}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="kb-btn primary"
+                onClick={() => void send('send')}
+                disabled={posting || reply.trim().length === 0}
+              >
+                {posting ? 'Sending…' : 'Send'}
+              </button>
+            )}
           </div>
         </div>
       ) : (
