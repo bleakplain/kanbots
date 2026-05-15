@@ -93,6 +93,11 @@ export interface KanbotsBridge {
     projectSlug: string;
     body: CreateCardRequest;
   }): Promise<CardSummary>;
+  cloudCardsGet(args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+  }): Promise<CardSummary>;
   cloudCardsUpdate(args: {
     orgSlug: string;
     projectSlug: string;
@@ -139,6 +144,7 @@ export interface KanbotsBridge {
     lastEventId?: string;
   }): Promise<{ subscriptionId: string }>;
   cloudRunsStreamStop(subscriptionId: string): Promise<void>;
+  cloudCostToday(orgSlug: string): Promise<{ totalUsd: number; since: string }>;
   cloudProjectBindingGet(args: {
     orgSlug: string;
     projectSlug: string;

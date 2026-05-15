@@ -68,6 +68,7 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     | 'cloudProjectsCreate'
     | 'cloudCardsList'
     | 'cloudCardsCreate'
+    | 'cloudCardsGet'
     | 'cloudCardsUpdate'
     | 'cloudCommentsList'
     | 'cloudCommentsAdd'
@@ -77,6 +78,7 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     | 'cloudRunsGet'
     | 'cloudRunsStreamStart'
     | 'cloudRunsStreamStop'
+    | 'cloudCostToday'
     | 'openCloudWorkspace'
     | 'closeCloudWorkspace'
     | 'recentCloudWorkspaces'
@@ -130,6 +132,7 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     cloudProjectsCreate: () => Promise.reject(new Error('fake bridge: no cloud projects')),
     cloudCardsList: () => Promise.resolve({ data: [], next_cursor: null }),
     cloudCardsCreate: () => Promise.reject(new Error('fake bridge: no cloud cards')),
+    cloudCardsGet: () => Promise.reject(new Error('fake bridge: no cloud cards')),
     cloudCardsUpdate: () => Promise.reject(new Error('fake bridge: no cloud cards')),
     cloudCommentsList: () => Promise.resolve({ data: [], next_cursor: null }),
     cloudCommentsAdd: () => Promise.reject(new Error('fake bridge: no cloud comments')),
@@ -139,6 +142,8 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     cloudRunsGet: () => Promise.reject(new Error('fake bridge: no cloud runs')),
     cloudRunsStreamStart: () => Promise.resolve({ subscriptionId: 'fake' }),
     cloudRunsStreamStop: () => Promise.resolve(),
+    cloudCostToday: () =>
+      Promise.resolve({ totalUsd: 0, since: new Date().toISOString() }),
     cloudProjectBindingGet: () => Promise.resolve(null),
     cloudProjectBindingSet: () =>
       Promise.resolve({ localRepoPath: '/tmp', updatedAt: new Date().toISOString() }),

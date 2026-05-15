@@ -88,6 +88,8 @@ const api: KanbotsBridge = {
     projectSlug: string;
     body: CreateCardRequest;
   }) => ipcRenderer.invoke('kanbots:cloud:cards-create', args) as Promise<CardSummary>,
+  cloudCardsGet: (args: { orgSlug: string; projectSlug: string; number: number }) =>
+    ipcRenderer.invoke('kanbots:cloud:cards-get', args) as Promise<CardSummary>,
   cloudCardsUpdate: (args: {
     orgSlug: string;
     projectSlug: string;
@@ -126,6 +128,11 @@ const api: KanbotsBridge = {
     }>,
   cloudRunsStreamStop: (subscriptionId: string) =>
     ipcRenderer.invoke('kanbots:cloud:runs-stream-stop', subscriptionId) as Promise<void>,
+  cloudCostToday: (orgSlug: string) =>
+    ipcRenderer.invoke('kanbots:cloud:cost-today', orgSlug) as Promise<{
+      totalUsd: number;
+      since: string;
+    }>,
   openCloudWorkspace: (args: { orgSlug: string; projectSlug: string }) =>
     ipcRenderer.invoke('kanbots:open-cloud-workspace', args) as Promise<
       { ok: true } | { ok: false; error: string }

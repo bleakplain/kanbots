@@ -1,5 +1,6 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { toIpcError } from './errors.js';
+import { CloudAuthRequiredError, getCloudStatus } from '../cloud-auth.js';
 import type { OwnedSubscriptionRegistry } from './subscriptions.js';
 import type { Handlers } from '@kanbots/api';
 
@@ -21,6 +22,11 @@ function wrapHandler(
 ): (event: IpcMainInvokeEvent, args: unknown) => Promise<unknown> {
   return async (event, args) => {
     try {
+      // Cloud-only launch: every typed handler requires an active session.
+      // Sign-in itself lives on the legacy `kanbots:*` channels in main.ts,
+      // so failing here doesn't block the auth flow.
+      const status = await getCloudStatus();
+      if (!status.authed) throw new CloudAuthRequiredError();
       return await fn(event, args);
     } catch (err) {
       // ipcMain only ships the message field across the IPC boundary, so we

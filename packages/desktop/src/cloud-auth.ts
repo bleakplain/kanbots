@@ -130,6 +130,24 @@ function decryptToken(b64: string, encryption: 'safe' | 'plain'): string | null 
   return buf.toString('utf8');
 }
 
+/**
+ * Cloud-only launch: throw a typed error when no valid cloud session
+ * exists. IPC handlers, the tool-bridge dispatch path, and CLI/MCP
+ * entry points call this to enforce the sign-in gate.
+ */
+export class CloudAuthRequiredError extends Error {
+  readonly code = 'CLOUD_AUTH_REQUIRED' as const;
+  constructor() {
+    super('Cloud sign-in required');
+    this.name = 'CloudAuthRequiredError';
+  }
+}
+
+export async function requireCloudAuth(): Promise<void> {
+  const status = await getCloudStatus();
+  if (!status.authed) throw new CloudAuthRequiredError();
+}
+
 export async function getCloudStatus(): Promise<CloudStatus> {
   const cfg = await readConfig();
   if (cfg === null) {

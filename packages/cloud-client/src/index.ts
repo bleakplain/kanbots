@@ -116,6 +116,13 @@ export interface CloudClient {
       opts?: { lastEventId?: string; signal?: AbortSignal },
     ): AsyncIterable<{ id: string; event: string; data: unknown }>;
   };
+  billing: {
+    /**
+     * Sum of agent-run cost in USD across the org since midnight UTC
+     * of the calling day. Used by the board's "$X today" stats line.
+     */
+    costToday(orgSlug: string): Promise<{ totalUsd: number; since: string }>;
+  };
 }
 
 function encodeStatusFilter(values: ListCardsQuery['status']): string | undefined {
@@ -266,6 +273,13 @@ export function createCloudClient(opts: CloudClientOptions): CloudClient {
         }),
       stream: (orgSlug, projectSlug, runId, streamOpts) =>
         streamRunEvents(opts, orgSlug, projectSlug, runId, streamOpts),
+    },
+    billing: {
+      costToday: (orgSlug) =>
+        request<{ totalUsd: number; since: string }>(opts, {
+          method: 'GET',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/billing/cost-today`,
+        }),
     },
   };
 }

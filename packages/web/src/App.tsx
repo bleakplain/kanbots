@@ -7,11 +7,15 @@ import { useTweaks } from './hooks/useTweaks.js';
 import { IssuesProvider, useIssues } from './hooks/useIssues.js';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.js';
 import { Board } from './pages/Board.js';
-import { CloudBoard } from './pages/CloudBoard.js';
+// Cloud-only launch — phase 1 unification: cloud workspaces render through
+// the same ShellHost+Board path as local, fed by mode-aware api.ts. The
+// former CloudBoard/CloudColumn/CloudCardModal files have been deleted.
 import { CloudWorkspacePicker } from './pages/CloudWorkspacePicker.js';
 import { ProvidersOverlay } from './pages/ProvidersOverlay.js';
-import { WorkspacePicker } from './pages/WorkspacePicker.js';
-import { api } from './api.js';
+// Cloud-only launch: local WorkspacePicker is no longer reachable from App
+// routing. Kept in the codebase for potential future restore.
+// import { WorkspacePicker } from './pages/WorkspacePicker.js';
+import { api, setCloudCtx } from './api.js';
 import { Window } from './components/shell/Window.js';
 import { Shell } from './components/shell/Shell.js';
 import { LeftRail } from './components/rail/LeftRail.js';
@@ -60,10 +64,15 @@ function describeFolder(config: Config | null): string {
 function ShellHost({
   config,
   workspace,
+  cloudWorkspace,
 }: {
   config: Config | null;
   workspace: ActiveWorkspaceInfo | null;
+  cloudWorkspace: ActiveCloudWorkspaceInfo | null;
 }) {
+  // Cloud workspaces don't yet carry per-workspace settings like
+  // `notifyOnRunComplete` — phase 3's project-config endpoint will surface
+  // those server-side. Default to "on" for cloud.
   const [notifyOnRunComplete, setNotifyOnRunCompleteState] = useState<boolean>(
     workspace?.config.notifyOnRunComplete !== false,
   );
@@ -294,65 +303,59 @@ export function App({
   initialCloudPromptDismissed,
 }: AppProps) {
   const [providersTick, setProvidersTick] = useState(0);
-  const [cloudPromptDone, setCloudPromptDone] = useState<boolean>(
-    initialCloudAuthed || initialCloudPromptDismissed,
-  );
   const [cloudAuthed, setCloudAuthed] = useState<boolean>(initialCloudAuthed);
-  const [forceLocalPicker, setForceLocalPicker] = useState(false);
-  const { data: config } = useFetch(workspace ? 'config' : null, () => api.config());
+
+  // Cloud-only launch — phase 1: install the cloud ctx on api.ts before any
+  // hook below fires its initial fetch. Setting module state during render
+  // is fine here because it's idempotent and the children's useFetch reads
+  // it during the same render pass.
+  if (cloudWorkspace !== null) {
+    setCloudCtx({
+      orgSlug: cloudWorkspace.orgSlug,
+      projectSlug: cloudWorkspace.projectSlug,
+    });
+  } else {
+    setCloudCtx(null);
+  }
+
+  const hasOpenWorkspace = workspace !== null || cloudWorkspace !== null;
+  const { data: config } = useFetch(hasOpenWorkspace ? 'config' : null, () => api.config());
   const { data: providers } = useFetch(
-    workspace ? `providers:${providersTick}` : null,
+    hasOpenWorkspace ? `providers:${providersTick}` : null,
     () => api.getProviders(),
   );
 
-  // Cloud first-run prompt: highest-priority overlay. Sits in front of the
-  // workspace picker so the user makes the local-vs-cloud choice before
-  // anything else. Dismissal is sticky (persisted to disk) so this only
-  // shows once. Browserless dev shells skip the gate entirely.
-  if (hasBridge && !cloudPromptDone) {
+  // Cloud-only launch: the sign-in gate is mandatory. There is no longer a
+  // "Continue local-only" exit, so the prompt sits in front of every other
+  // route until cloudAuthed becomes true. The cloudPromptDismissed flag from
+  // bootstrap is intentionally ignored (legacy installs may carry a
+  // dismissal from the old optional gate).
+  if (hasBridge && !cloudAuthed) {
     return (
       <CloudFirstRunPrompt
-        onDismissed={() => setCloudPromptDone(true)}
-        onSignedIn={() => {
-          setCloudAuthed(true);
-          setCloudPromptDone(true);
-        }}
+        onSignedIn={() => setCloudAuthed(true)}
       />
     );
   }
 
-  // Cloud-mode shell. The CloudBoard pulls cards from the v1 API
-  // for the picked org+project; the local-mode Board is bypassed
-  // entirely.
-  if (hasBridge && cloudWorkspace !== null) {
-    return (
-      <CloudBoard
-        workspace={cloudWorkspace}
-        onSwitchWorkspace={async () => {
-          const bridge = getBridge();
-          if (!bridge) return;
-          await bridge.closeCloudWorkspace();
-          window.location.reload();
-        }}
-      />
-    );
-  }
+  // Cloud-only launch — phase 1 unification: cloud workspace also renders
+  // through ShellHost+Board (same chrome, hooks, modals as local), fed by
+  // the mode-aware api.ts that the `setCloudCtx` call above just primed.
+  // Drag-drop, card creation, and the workspace picker work through the
+  // cloud client; cost meters / autopilot / live run streams are stubbed
+  // until phases 2-4.
 
-  // No workspace selected. If the user is signed in to cloud (and hasn't
-  // explicitly asked for local), show the cloud picker; otherwise the
-  // local one.
-  if (hasBridge && !workspace) {
-    if (cloudAuthed && !forceLocalPicker) {
-      return (
-        <CloudWorkspacePicker
-          initialRecents={initialCloudRecents}
-          onPickLocal={() => setForceLocalPicker(true)}
-          onOpened={() => window.location.reload()}
-        />
-      );
-    }
+  // Cloud-only launch: no workspace selected → always show the cloud picker.
+  // The local WorkspacePicker is no longer reachable from the UI; the
+  // `onPickLocal` callback is wired to a no-op so existing callers keep
+  // compiling.
+  if (hasBridge && workspace === null && cloudWorkspace === null) {
     return (
-      <WorkspacePicker initialRecents={initialRecents} onOpened={() => window.location.reload()} />
+      <CloudWorkspacePicker
+        initialRecents={initialCloudRecents}
+        onPickLocal={() => undefined}
+        onOpened={() => window.location.reload()}
+      />
     );
   }
 
@@ -368,7 +371,11 @@ export function App({
   if (hasBridge && !anyConfigured) {
     return (
       <IssuesProvider>
-        <ShellHost config={config ?? null} workspace={workspace} />
+        <ShellHost
+          config={config ?? null}
+          workspace={workspace}
+          cloudWorkspace={cloudWorkspace}
+        />
         <ProvidersOverlay
           reason={(providers?.providers ?? []).some((p) => p.lastError) ? 'all-failed' : 'none'}
           onConfigured={() => setProvidersTick((t) => t + 1)}
@@ -379,7 +386,11 @@ export function App({
 
   return (
     <IssuesProvider>
-      <ShellHost config={config ?? null} workspace={workspace} />
+      <ShellHost
+        config={config ?? null}
+        workspace={workspace}
+        cloudWorkspace={cloudWorkspace}
+      />
     </IssuesProvider>
   );
 }

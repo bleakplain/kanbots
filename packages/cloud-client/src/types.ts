@@ -83,6 +83,18 @@ export type CardStatus =
   | 'blocked'
   | 'archived';
 
+/**
+ * Most recent agent run for a card, surfaced inline on `CardSummary`
+ * so the board renders running/blocked/failed state without a separate
+ * runs.list call. Null when no run has ever been dispatched.
+ */
+export interface CardSummaryLatestRun {
+  id: string;
+  status: AgentRunStatus;
+  started_at: string;
+  cost_usd_cents: number;
+}
+
 export interface CardSummary {
   id: string;
   number: number;
@@ -96,6 +108,7 @@ export interface CardSummary {
   comment_count: number;
   run_count: number;
   attachment_count: number;
+  latest_run: CardSummaryLatestRun | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -160,13 +173,17 @@ export interface AttachmentListResponse {
   data: AttachmentSummary[];
 }
 
+// Mirror cloud `@kanbots/shared` AgentRunStatusEnum. Values were stale
+// here ('awaiting_decision'/'completed'/'cancelled') — the server emits
+// the shared enum, so anything that branched on the old values would
+// silently fall through.
 export type AgentRunStatus =
   | 'pending'
   | 'running'
-  | 'awaiting_decision'
-  | 'completed'
+  | 'awaiting_input'
+  | 'succeeded'
   | 'failed'
-  | 'cancelled'
+  | 'stopped'
   | 'timed_out';
 
 export interface AgentRunSummary {

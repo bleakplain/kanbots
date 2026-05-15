@@ -51,6 +51,7 @@ import {
 import {
   cancelCloudLogin,
   clearCloudAuth,
+  CloudAuthRequiredError,
   dismissCloudPrompt,
   getCloudStatus,
   getCloudToken,
@@ -835,7 +836,45 @@ function closeActiveCloudWorkspace(): void {
   activeCloudWorkspace = null;
 }
 
+// Cloud-only launch: channels callable without a valid cloud session.
+// Everything else is gated by the wrapper installed in registerIpc().
+//   - bootstrap surfaces the cloudAuthed flag so the renderer can route to sign-in
+//   - cloud-* drive the sign-in flow itself
+//   - window-* keeps frame chrome usable on the sign-in screen
+//   - claude/codex auth-status are read-only probes
+const AUTH_FREE_CHANNELS: ReadonlySet<string> = new Set([
+  'kanbots:bootstrap',
+  'kanbots:cloud-auth-status',
+  'kanbots:cloud-login-start',
+  'kanbots:cloud-login-poll',
+  'kanbots:cloud-login-cancel',
+  'kanbots:cloud-logout',
+  'kanbots:cloud-prompt-dismiss',
+  'kanbots:window-minimize',
+  'kanbots:window-toggle-maximize',
+  'kanbots:window-close',
+  'kanbots:claude-auth-status',
+  'kanbots:codex-auth-status',
+]);
+
 function registerIpc(): void {
+  // Wrap ipcMain.handle so that any channel not in AUTH_FREE_CHANNELS rejects
+  // when the user is not signed in to Kanbots Cloud. Done at registration
+  // time so every direct ipcMain.handle(...) call below picks up the gate
+  // without a touch.
+  const origHandle = ipcMain.handle.bind(ipcMain);
+  ipcMain.handle = ((channel: string, listener: Parameters<typeof ipcMain.handle>[1]) => {
+    if (AUTH_FREE_CHANNELS.has(channel)) {
+      origHandle(channel, listener);
+      return;
+    }
+    origHandle(channel, async (event, ...args: unknown[]) => {
+      const status = await getCloudStatus();
+      if (!status.authed) throw new CloudAuthRequiredError();
+      return (listener as (...a: unknown[]) => unknown)(event, ...args);
+    });
+  }) as typeof ipcMain.handle;
+
   ipcMain.handle('kanbots:bootstrap', async (): Promise<BootstrapPayload> => {
     const [recents, cloudRecents, claudeAuthed, cloudStatus] = await Promise.all([
       pruneMissingRecents(),
@@ -989,6 +1028,16 @@ function registerIpc(): void {
   );
 
   ipcMain.handle(
+    'kanbots:cloud:cards-get',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; number: number },
+    ) => {
+      return cloudClient.cards.get(args.orgSlug, args.projectSlug, args.number);
+    },
+  );
+
+  ipcMain.handle(
     'kanbots:open-cloud-workspace',
     async (
       _event,
@@ -1013,6 +1062,13 @@ function registerIpc(): void {
     'kanbots:recent-cloud-workspaces',
     async (): Promise<RecentCloudWorkspace[]> => {
       return readCloudRecents();
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:cost-today',
+    async (_event, orgSlug: string): Promise<{ totalUsd: number; since: string }> => {
+      return cloudClient.billing.costToday(orgSlug);
     },
   );
 

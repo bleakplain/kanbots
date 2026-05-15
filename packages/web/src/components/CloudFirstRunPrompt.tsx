@@ -1,11 +1,11 @@
 import { useEffect, useState, type MouseEvent } from 'react';
 import { Logo } from './Logo.js';
-import { getBridge } from '../desktop-bridge.js';
 import { CloudSettingsModal } from './modals/CloudSettingsModal.js';
 import type { CloudStatusPayload } from '../desktop-bridge.js';
 
+// Cloud-only launch: the gate is now non-dismissible. `onDismissed` was
+// removed from the props; sign-in is the only exit.
 export interface CloudFirstRunPromptProps {
-  onDismissed: () => void;
   onSignedIn: () => void;
 }
 
@@ -45,38 +45,20 @@ const HeroIcon = (
 );
 
 /**
- * Shown once on first launch when the user has neither signed in to Kanbots
- * Cloud nor explicitly opted out. The user makes the local-vs-cloud choice
- * before anything else; dismissal is sticky so this never reappears.
+ * Cloud-only launch: shown whenever the user is not signed in to Kanbots
+ * Cloud. The gate has no dismissal — sign-in is the only path forward.
  */
-export function CloudFirstRunPrompt({ onDismissed, onSignedIn }: CloudFirstRunPromptProps) {
+export function CloudFirstRunPrompt({ onSignedIn }: CloudFirstRunPromptProps) {
   const [showSettings, setShowSettings] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
-      // Force an explicit choice — neither Esc nor click-outside dismisses
-      // the gate. The "Continue local-only" button is one click away.
       if (e.key === 'Escape') e.preventDefault();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-
-  async function handleContinueLocal(): Promise<void> {
-    if (busy) return;
-    setBusy(true);
-    const bridge = getBridge();
-    if (bridge) {
-      try {
-        await bridge.cloudPromptDismiss();
-      } catch {
-        /* best-effort */
-      }
-    }
-    setBusy(false);
-    onDismissed();
-  }
 
   function handleStatusChange(status: CloudStatusPayload): void {
     if (status.authed) onSignedIn();
@@ -109,10 +91,10 @@ export function CloudFirstRunPrompt({ onDismissed, onSignedIn }: CloudFirstRunPr
             <div className="kb-cloud-hero-icon" style={{ color: 'var(--accent)' }}>
               {HeroIcon}
             </div>
-            <h2 className="kb-cloud-hero-title">Local-first by default</h2>
+            <h2 className="kb-cloud-hero-title">Sign in to continue</h2>
             <p className="kb-cloud-hero-tagline">
-              kanbots runs entirely on your machine. Sign in to Kanbots Cloud
-              to sync with your team — or continue local-only and switch later.
+              kanbots requires a Kanbots Cloud account. Sign in to access your
+              boards, dispatch agents, and sync with your team.
             </p>
           </div>
 
@@ -122,21 +104,15 @@ export function CloudFirstRunPrompt({ onDismissed, onSignedIn }: CloudFirstRunPr
           >
             <li className="kb-cloud-feature">
               <span className="kb-cloud-feature-icon">{CheckIcon}</span>
-              <span>
-                <strong style={{ color: 'var(--ink)', fontWeight: 500 }}>Local-only</strong>{' '}
-                — fully offline, your data never leaves this machine
-              </span>
+              <span>Agents and code stay on your machine</span>
             </li>
             <li className="kb-cloud-feature">
               <span className="kb-cloud-feature-icon">{CheckIcon}</span>
-              <span>
-                <strong style={{ color: 'var(--ink)', fontWeight: 500 }}>Cloud</strong>{' '}
-                — sync tasks and runs across your team and devices
-              </span>
+              <span>Sync boards and runs across your team and devices</span>
             </li>
             <li className="kb-cloud-feature">
               <span className="kb-cloud-feature-icon">{CheckIcon}</span>
-              <span>You can switch any time from the toolbar</span>
+              <span>One account works on every device you install kanbots on</span>
             </li>
           </ul>
 
@@ -149,14 +125,7 @@ export function CloudFirstRunPrompt({ onDismissed, onSignedIn }: CloudFirstRunPr
             >
               Sign in to Kanbots Cloud
             </button>
-            <button
-              type="button"
-              className="kb-cloud-secondary"
-              onClick={() => void handleContinueLocal()}
-              disabled={busy}
-            >
-              Continue local-only
-            </button>
+            {/* Cloud-only launch: "Continue local-only" CTA removed */}
           </div>
 
           <p className="kb-cloud-fineprint">

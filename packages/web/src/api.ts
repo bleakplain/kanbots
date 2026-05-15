@@ -1,3 +1,4 @@
+import { cardsToIssues, cardToIssue, statusFromLabels } from './cloud-adapter.js';
 import type {
   ChannelArgs,
   ChannelName,
@@ -77,6 +78,34 @@ interface BridgeError extends Error {
   details?: unknown;
 }
 
+// Cloud-only launch — phase 1 unification: when a cloud workspace is open,
+// `setCloudCtx` is called by the App with the active org/project slugs.
+// Mode-aware api functions check `cloudCtx` and route to the cloud client
+// bridge instead of local IPC; everything else stays as local-mode IPC.
+// Callers don't need to know the mode — they keep calling `api.foo()`.
+interface CloudCtx {
+  orgSlug: string;
+  projectSlug: string;
+}
+let cloudCtx: CloudCtx | null = null;
+export function setCloudCtx(ctx: CloudCtx | null): void {
+  cloudCtx = ctx;
+}
+export function isCloudMode(): boolean {
+  return cloudCtx !== null;
+}
+
+function getCloudBridge() {
+  if (typeof window === 'undefined' || !window.kanbots) {
+    throw new Error('window.kanbots not available — renderer must run inside Electron');
+  }
+  return window.kanbots;
+}
+
+function refuseInCloud(op: string): never {
+  throw new Error(`${op} is not yet available in cloud mode (phase 2-4 of the unification plan).`);
+}
+
 function invoke<C extends ChannelName>(
   channel: C,
   args: ChannelArgs<C>,
@@ -147,21 +176,129 @@ function buildDispatchArgs(
 }
 
 export const api = {
-  config: (): Promise<Config> => invoke('config:get', undefined),
-  issues: (state: 'open' | 'closed' | 'all' = 'open'): Promise<Issue[]> =>
-    invoke('issues:list', { state }),
-  issue: (n: number): Promise<IssueDetail> => invoke('issues:get', { number: n }),
-  updateIssue: (n: number, patch: UpdateIssuePatch): Promise<Issue> =>
-    invoke('issues:patch', { number: n, patch }),
-  addComment: (n: number, body: string): Promise<Comment> =>
-    invoke('issues:add-comment', { number: n, body }),
+  config: async (): Promise<Config> => {
+    if (cloudCtx !== null) {
+      // Synthetic config so renderer breadcrumbs render `orgSlug/projectSlug`.
+      // `mode: 'github'` keeps the existing display branch (`owner/repo`)
+      // working without widening the Config union — phase 3 will add a
+      // dedicated 'cloud' mode value with a project-config endpoint.
+      return {
+        owner: cloudCtx.orgSlug,
+        repo: cloudCtx.projectSlug,
+        mode: 'github',
+      };
+    }
+    return invoke('config:get', undefined);
+  },
+  issues: async (state: 'open' | 'closed' | 'all' = 'open'): Promise<Issue[]> => {
+    if (cloudCtx !== null) {
+      const bridge = getCloudBridge();
+      const list = await bridge.cloudCardsList({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        query: { limit: 200 },
+      });
+      // `state` filtering is approximate in cloud mode: archived_at handles
+      // closed-equivalent. Phase 2 may add a `state` query param if needed.
+      const issues = cardsToIssues(list.data);
+      if (state === 'closed') return issues.filter((i) => i.state === 'closed');
+      if (state === 'open') return issues.filter((i) => i.state === 'open');
+      return issues;
+    }
+    return invoke('issues:list', { state });
+  },
+  issue: async (n: number): Promise<IssueDetail> => {
+    if (cloudCtx !== null) {
+      const bridge = getCloudBridge();
+      const [card, commentsResp] = await Promise.all([
+        bridge.cloudCardsGet({
+          orgSlug: cloudCtx.orgSlug,
+          projectSlug: cloudCtx.projectSlug,
+          number: n,
+        }),
+        bridge.cloudCommentsList({
+          orgSlug: cloudCtx.orgSlug,
+          projectSlug: cloudCtx.projectSlug,
+          number: n,
+        }),
+      ]);
+      const comments: Comment[] = commentsResp.data.map((c) => ({
+        id: Number(c.id),
+        body: c.body,
+        user: { login: 'cloud-user', avatarUrl: null },
+        createdAt: c.created_at,
+        updatedAt: c.edited_at ?? c.created_at,
+        htmlUrl: '',
+      }));
+      // Agent thread (chat history) requires runs + events — wired in
+      // phase 4 once the SSE multiplexer lands.
+      return { issue: cardToIssue(card), comments, thread: null };
+    }
+    return invoke('issues:get', { number: n });
+  },
+  updateIssue: async (n: number, patch: UpdateIssuePatch): Promise<Issue> => {
+    if (cloudCtx !== null) {
+      const bridge = getCloudBridge();
+      // Only label-driven status updates are wired in phase 1 — that's what
+      // drag-drop dispatches. Title/body edits route through the same
+      // endpoint but aren't surfaced from Board today.
+      const nextStatus = patch.labels ? statusFromLabels(patch.labels) : null;
+      if (nextStatus === null && patch.title === undefined && patch.body === undefined) {
+        refuseInCloud(`api.updateIssue (no status/title/body in patch)`);
+      }
+      const body: Parameters<typeof bridge.cloudCardsUpdate>[0]['body'] = {};
+      if (nextStatus !== null) body.status = nextStatus;
+      if (patch.title !== undefined) body.title = patch.title;
+      if (patch.body !== undefined) body.body = patch.body;
+      const updated = await bridge.cloudCardsUpdate({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        number: n,
+        body,
+      });
+      return cardToIssue(updated);
+    }
+    return invoke('issues:patch', { number: n, patch });
+  },
+  addComment: async (n: number, body: string): Promise<Comment> => {
+    if (cloudCtx !== null) {
+      const bridge = getCloudBridge();
+      const created = await bridge.cloudCommentsAdd({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        number: n,
+        body,
+      });
+      // CommentSummary → renderer Comment: stub the GitHub-shaped user.
+      return {
+        id: Number(created.id),
+        body: created.body,
+        user: { login: 'cloud-user', avatarUrl: null },
+        createdAt: created.created_at,
+        updatedAt: created.edited_at ?? created.created_at,
+        htmlUrl: '',
+      };
+    }
+    return invoke('issues:add-comment', { number: n, body });
+  },
   postMessage: (
     n: number,
     body: string,
     opts: PostMessageOptions = {},
   ): Promise<PostMessageResult> =>
     invoke('issues:post-message', buildPostMessageArgs(n, body, opts)),
-  createIssue: (input: CreateIssueInput): Promise<Issue> => invoke('issues:create', input),
+  createIssue: async (input: CreateIssueInput): Promise<Issue> => {
+    if (cloudCtx !== null) {
+      const bridge = getCloudBridge();
+      const created = await bridge.cloudCardsCreate({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        body: { title: input.title, ...(input.body !== undefined ? { body: input.body } : {}) },
+      });
+      return cardToIssue(created);
+    }
+    return invoke('issues:create', input);
+  },
   draftIssue: (description: string): Promise<DraftedIssue> =>
     invoke('composer:draft', { description }),
   suggestFeature: (
@@ -213,7 +350,18 @@ export const api = {
     invoke('issues:list-runs', { number: issueNumber }),
   listPendingDecisions: (): Promise<PendingDecisionPayload[]> =>
     invoke('decisions:pending', undefined),
-  workspace: (): Promise<Workspace> => invoke('workspace:get', undefined),
+  workspace: async (): Promise<Workspace> => {
+    if (cloudCtx !== null) {
+      // Synthetic — phase 3 ships a real project-config endpoint that will
+      // back this with cloud workspace metadata.
+      return {
+        id: `${cloudCtx.orgSlug}/${cloudCtx.projectSlug}`,
+        name: cloudCtx.projectSlug,
+        currentFolderId: '',
+      };
+    }
+    return invoke('workspace:get', undefined);
+  },
   getWorkspaceBudgets: (): Promise<WorkspaceBudgets> =>
     invoke('workspace:get-budgets', undefined),
   setWorkspaceBudgets: (input: WorkspaceBudgets): Promise<WorkspaceBudgets> =>
@@ -293,10 +441,20 @@ export const api = {
     runId: number,
   ): Promise<ChannelResult<'agent-runs:promote-pr'>> =>
     invoke('agent-runs:promote-pr', { runId }),
-  costToday: (): Promise<{ totalUsd: number; since: string }> =>
-    invoke('cost:today', undefined),
-  costUsage: (): Promise<ChannelResult<'cost:usage'>> =>
-    invoke('cost:usage', undefined),
+  costToday: async (): Promise<{ totalUsd: number; since: string }> => {
+    if (cloudCtx !== null) {
+      const bridge = getCloudBridge();
+      return bridge.cloudCostToday(cloudCtx.orgSlug);
+    }
+    return invoke('cost:today', undefined);
+  },
+  costUsage: async (): Promise<ChannelResult<'cost:usage'>> => {
+    if (cloudCtx !== null) {
+      // Phase 2: replace with cloud billing usage endpoint.
+      return { fiveHour: null, sevenDay: null, source: 'unavailable' };
+    }
+    return invoke('cost:usage', undefined);
+  },
   costBreakdown: (): Promise<ChannelResult<'cost:breakdown'>> =>
     invoke('cost:breakdown', undefined),
   costRollup: (
@@ -350,8 +508,20 @@ export const api = {
     invoke('sentry:analyze', { issueNumber }),
   applySentrySuggestion: (issueNumber: number): Promise<Issue> =>
     invoke('sentry:apply-suggestion', { issueNumber }),
-  getProviders: (): Promise<ProvidersPayload> =>
-    invoke('providers:get', undefined),
+  getProviders: async (): Promise<ProvidersPayload> => {
+    if (cloudCtx !== null) {
+      // In cloud mode the renderer doesn't manage Claude/Codex providers
+      // locally — agents run cloud-side via the v1 API. anyConfigured=true
+      // keeps the ProvidersOverlay from gating the workspace.
+      return {
+        providers: [],
+        settings: { defaultProvider: null, defaultModel: null },
+        safeStorageAvailable: false,
+        anyConfigured: true,
+      };
+    }
+    return invoke('providers:get', undefined);
+  },
   saveProvider: (input: ProviderSaveInput): Promise<ProvidersPayload> =>
     invoke('providers:save', input),
   testProviderConnection: (

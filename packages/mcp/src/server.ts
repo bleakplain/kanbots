@@ -6,6 +6,12 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { KANBOTS_TOOLS } from './index.js';
+import { requireCloudAuth } from './auth.js';
+
+// Cloud-only launch: refuse to start without a signed-in kanbots session,
+// independent of the bridge env vars below. Defense-in-depth so the MCP
+// server cannot be wired up to a stale bridge or spoofed endpoint.
+await requireCloudAuth();
 
 const BRIDGE_URL = process.env.KANBOTS_TOOL_BRIDGE_URL;
 const BRIDGE_TOKEN = process.env.KANBOTS_TOOL_BRIDGE_TOKEN;
