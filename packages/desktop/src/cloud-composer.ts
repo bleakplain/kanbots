@@ -1,11 +1,11 @@
-import { app, ipcMain } from 'electron';
+import { ipcMain } from 'electron';
 import type {
   PlannerEvent,
   SuggestFeatureBacklogEntry,
   SuggestFeatureEntryStatus,
 } from '@kanbots/api';
 import type { CardSummary, CloudClient } from '@kanbots/cloud-client';
-import { createSuggester, type SuggestFeatureFn } from '@kanbots/dispatcher';
+import { createSuggester } from '@kanbots/dispatcher';
 import { CHANNEL_PREFIX } from './ipc/register.js';
 import { toIpcError } from './ipc/errors.js';
 import type { ActiveCloudWorkspaceInfo } from './types.js';
@@ -16,9 +16,10 @@ import type { ActiveCloudWorkspaceInfo } from './types.js';
  * a cloud workspace is open and torn down on close — mirrors how local
  * workspaces register their composer handlers via the workspace handler set.
  *
- * The spawned CLI uses Electron's userData path as `cwd` because the cloud
- * workspace has no local git tree; the suggester only needs a directory to
- * spawn in, not a repo.
+ * The spawned CLI runs inside the local git repo the user bound to this
+ * cloud project (via Cloud Settings → Bind local repo). Without a binding
+ * the CLI has nothing to ground a suggestion in, so we fail loudly rather
+ * than spawn in an unrelated directory.
  */
 
 const SUGGEST_BACKLOG_LIMIT = 200;
@@ -63,7 +64,6 @@ export interface RegisterCloudComposerOptions {
 export function registerCloudComposerHandlers(
   opts: RegisterCloudComposerOptions,
 ): () => void {
-  const suggest: SuggestFeatureFn = createSuggester({ cwd: app.getPath('userData') });
   const channel = `${CHANNEL_PREFIX}composer:suggest`;
 
   ipcMain.handle(channel, async (_event, rawArgs) => {
@@ -73,10 +73,21 @@ export function registerCloudComposerHandlers(
       if (ws === null) {
         throw new Error('No active cloud workspace; open a project before suggesting features.');
       }
+      if (ws.localRepoPath === null) {
+        throw new Error(
+          'This cloud project is not bound to a local repository. Open Cloud Settings → Bind local repo, then try again.',
+        );
+      }
       const list = await opts.cloudClient.cards.list(ws.orgSlug, ws.projectSlug, {
         limit: SUGGEST_BACKLOG_LIMIT,
       });
       const backlog = cardsToBacklogEntries(list.data);
+
+      // Spawn the CLI inside the bound local repo so the suggester can read
+      // the actual codebase (README, package.json, source dirs). Built fresh
+      // per call because the binding can change without reopening the
+      // workspace (Cloud Settings → Bind local repo updates it in place).
+      const suggest = createSuggester({ cwd: ws.localRepoPath });
 
       return await suggest({
         backlog,
