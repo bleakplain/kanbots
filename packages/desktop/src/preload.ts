@@ -115,6 +115,24 @@ const api: KanbotsBridge = {
     number: number;
     body: CreateAgentRunRequest;
   }) => ipcRenderer.invoke('kanbots:cloud:runs-create', args) as Promise<AgentRunSummary>,
+  /**
+   * Cloud-mode equivalent of issues:start-agent. Creates a run on the cloud,
+   * claims it, spawns the local Claude/Codex CLI in the bound repo, and
+   * streams events to /agent/runs/:id/events. Returns the runId
+   * immediately; the CLI keeps running in the background.
+   */
+  cloudStartAgentRun: (args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+    prompt: string;
+    appendSystemPrompt?: string;
+    model?: string;
+    provider?: 'claude-code' | 'codex-cli';
+  }) =>
+    ipcRenderer.invoke('kanbots:cloud:start-agent-run', args) as Promise<{
+      runId: string;
+    }>,
   cloudRunsGet: (args: { orgSlug: string; projectSlug: string; runId: string }) =>
     ipcRenderer.invoke('kanbots:cloud:runs-get', args) as Promise<AgentRunSummary>,
   cloudRunsStreamStart: (args: {

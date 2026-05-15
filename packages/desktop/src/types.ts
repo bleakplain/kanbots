@@ -188,6 +188,15 @@ export interface KanbotsBridge {
     number: number;
     body: CreateAgentRunRequest;
   }): Promise<AgentRunSummary>;
+  cloudStartAgentRun(args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+    prompt: string;
+    appendSystemPrompt?: string;
+    model?: string;
+    provider?: 'claude-code' | 'codex-cli';
+  }): Promise<{ runId: string }>;
   cloudRunsGet(args: {
     orgSlug: string;
     projectSlug: string;

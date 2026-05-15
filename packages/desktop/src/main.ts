@@ -97,6 +97,7 @@ import {
   registerProvidersIpc,
 } from './providers-ipc.js';
 import { registerCloudComposerHandlers } from './cloud-composer.js';
+import { startCloudRun, type CloudRunHandle } from './cloud-run-dispatcher.js';
 import { SentryPoller } from './sentry-poller.js';
 import {
   decryptToken,
@@ -151,6 +152,7 @@ let activeWorkspace: ActiveWorkspace | null = null;
  */
 let activeCloudWorkspace: ActiveCloudWorkspaceInfo | null = null;
 let cloudComposerUnregister: (() => void) | null = null;
+const activeCloudRuns = new Map<string, CloudRunHandle>();
 /**
  * In-flight cloud run-event SSE streams keyed by subscription id.
  * Renderer holds the matching ids; calling -stream-stop aborts.
@@ -1245,6 +1247,57 @@ function registerIpc(): void {
       args: { orgSlug: string; projectSlug: string; runId: string },
     ): Promise<AgentRunSummary> => {
       return cloudClient.runs.get(args.orgSlug, args.projectSlug, args.runId);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:start-agent-run',
+    async (
+      _event,
+      args: {
+        orgSlug: string;
+        projectSlug: string;
+        number: number;
+        prompt: string;
+        appendSystemPrompt?: string;
+        model?: string;
+        provider?: 'claude-code' | 'codex-cli';
+      },
+    ): Promise<{ runId: string }> => {
+      if (activeCloudWorkspace === null) {
+        throw new Error('No active cloud workspace.');
+      }
+      if (
+        activeCloudWorkspace.orgSlug !== args.orgSlug
+        || activeCloudWorkspace.projectSlug !== args.projectSlug
+      ) {
+        throw new Error('Cloud workspace mismatch — reopen the project and try again.');
+      }
+      if (activeCloudWorkspace.localRepoPath === null) {
+        throw new Error(
+          'This cloud project is not bound to a local repository. Open Cloud Settings → Bind local repo, then try again.',
+        );
+      }
+      const handle = await startCloudRun({
+        cloudClient,
+        orgSlug: args.orgSlug,
+        projectSlug: args.projectSlug,
+        cardNumber: args.number,
+        prompt: args.prompt,
+        ...(args.appendSystemPrompt !== undefined
+          ? { appendSystemPrompt: args.appendSystemPrompt }
+          : {}),
+        ...(args.model !== undefined ? { model: args.model } : {}),
+        ...(args.provider !== undefined ? { provider: args.provider } : {}),
+        cwd: activeCloudWorkspace.localRepoPath,
+      });
+      activeCloudRuns.set(handle.runId, handle);
+      // Reap the handle once the run finishes so the map doesn't grow
+      // unbounded across a long-lived desktop session.
+      void handle.done.finally(() => {
+        activeCloudRuns.delete(handle.runId);
+      });
+      return { runId: handle.runId };
     },
   );
 

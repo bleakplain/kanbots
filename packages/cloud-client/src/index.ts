@@ -115,6 +115,29 @@ export interface CloudClient {
       runId: string,
       opts?: { lastEventId?: string; signal?: AbortSignal },
     ): AsyncIterable<{ id: string; event: string; data: unknown }>;
+    /**
+     * Claim a pending run for execution. Returns the claimed run's status —
+     * 200 idempotent if the same caller claimed it earlier, 409 if another
+     * worker / token has it.
+     *
+     * Lives at `/api/v1/agent/runs/[id]/claim` (org-less path) because it
+     * historically targeted agent-scoped tokens; user-scoped tokens are
+     * accepted when the user owns the run (cloud-mode desktop pattern).
+     */
+    claim(
+      runId: string,
+      opts?: { sessionId?: string },
+    ): Promise<{ run_id: string; status: string; already_claimed?: boolean; started_at?: string }>;
+    /**
+     * Append NDJSON events to a run owned by the caller. Lines are
+     * `{type, payload, source?}` objects joined by `\n`. The cloud
+     * derives terminal status (succeeded / failed / stopped) from
+     * `type: 'result'` events automatically.
+     */
+    appendEvents(
+      runId: string,
+      events: ReadonlyArray<{ type: string; payload?: unknown; source?: 'agent' | 'system' }>,
+    ): Promise<{ inserted: number; bad_lines: number; event_count: number; status: string }>;
   };
   billing: {
     /**
@@ -273,6 +296,31 @@ export function createCloudClient(opts: CloudClientOptions): CloudClient {
         }),
       stream: (orgSlug, projectSlug, runId, streamOpts) =>
         streamRunEvents(opts, orgSlug, projectSlug, runId, streamOpts),
+      claim: (runId, claimOpts) =>
+        request<{
+          run_id: string;
+          status: string;
+          already_claimed?: boolean;
+          started_at?: string;
+        }>(opts, {
+          method: 'POST',
+          path: `/api/v1/agent/runs/${encodeURIComponent(runId)}/claim`,
+          body: claimOpts?.sessionId !== undefined ? { session_id: claimOpts.sessionId } : {},
+        }),
+      appendEvents: (runId, events) => {
+        const ndjson = events.map((e) => JSON.stringify(e)).join('\n');
+        return request<{
+          inserted: number;
+          bad_lines: number;
+          event_count: number;
+          status: string;
+        }>(opts, {
+          method: 'POST',
+          path: `/api/v1/agent/runs/${encodeURIComponent(runId)}/events`,
+          rawBody: ndjson,
+          rawContentType: 'application/x-ndjson',
+        });
+      },
     },
     billing: {
       costToday: (orgSlug) =>

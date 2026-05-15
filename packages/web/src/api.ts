@@ -281,12 +281,41 @@ export const api = {
     }
     return invoke('issues:add-comment', { number: n, body });
   },
-  postMessage: (
+  postMessage: async (
     n: number,
     body: string,
     opts: PostMessageOptions = {},
-  ): Promise<PostMessageResult> =>
-    invoke('issues:post-message', buildPostMessageArgs(n, body, opts)),
+  ): Promise<PostMessageResult> => {
+    if (cloudCtx !== null) {
+      // Cloud mode has no local thread/message store; the kickoff text
+      // becomes the agent's prompt directly via startAgent. Persist the
+      // text as a card comment so it stays visible on the cloud board,
+      // then return a synthetic result so TaskCreateModal's "Dispatch"
+      // flow doesn't have to know the difference.
+      const bridge = getCloudBridge();
+      try {
+        await bridge.cloudCommentsAdd({
+          orgSlug: cloudCtx.orgSlug,
+          projectSlug: cloudCtx.projectSlug,
+          number: n,
+          body,
+        });
+      } catch {
+        // best-effort — losing the comment shouldn't block dispatch
+      }
+      return {
+        message: {
+          id: 0,
+          threadId: 0,
+          role: 'user',
+          body,
+          createdAt: new Date().toISOString(),
+        } as unknown as PostMessageResult['message'],
+        thread: { id: 0 } as unknown as PostMessageResult['thread'],
+      };
+    }
+    return invoke('issues:post-message', buildPostMessageArgs(n, body, opts));
+  },
   createIssue: async (input: CreateIssueInput): Promise<Issue> => {
     if (cloudCtx !== null) {
       const bridge = getCloudBridge();
@@ -309,7 +338,7 @@ export const api = {
     if (provider !== undefined) args.provider = provider;
     return invoke('composer:suggest', args);
   },
-  startAgent: (
+  startAgent: async (
     issueNumber: number,
     input: {
       threadId: number;
@@ -319,6 +348,33 @@ export const api = {
       provider?: ProviderId;
     },
   ): Promise<AgentRun> => {
+    if (cloudCtx !== null) {
+      const bridge = getCloudBridge();
+      const { runId } = await bridge.cloudStartAgentRun({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        number: issueNumber,
+        prompt: input.prompt,
+        ...(input.appendSystemPrompt !== undefined
+          ? { appendSystemPrompt: input.appendSystemPrompt }
+          : {}),
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.provider !== undefined ? { provider: input.provider } : {}),
+      });
+      // The renderer's AgentRun type expects a numeric id; cloud runs are
+      // KSUIDs. Return a synthetic AgentRun shape — components that need
+      // run state poll the cloud via cloudRunsGet using the string runId
+      // (latest_run on the card already carries it). Local-only fields
+      // are left at safe zero/empty defaults.
+      return {
+        id: 0,
+        cloudRunId: runId,
+        threadId: input.threadId,
+        issueNumber,
+        status: 'starting',
+        startedAt: new Date().toISOString(),
+      } as unknown as AgentRun;
+    }
     const args: ChannelArgs<'issues:start-agent'> = {
       number: issueNumber,
       threadId: input.threadId,
