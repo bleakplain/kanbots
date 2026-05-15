@@ -186,6 +186,12 @@ const api: KanbotsBridge = {
       ok: boolean;
       error?: string;
     }>,
+  workspaceFileDiff: (args: { worktreePath: string; filePath: string }) =>
+    ipcRenderer.invoke('kanbots:workspace:file-diff', args) as Promise<{
+      status: 'M' | 'A' | 'D' | 'R' | '??' | 'U' | null;
+      oldText: string | null;
+      newText: string | null;
+    }>,
   cloudRunsGet: (args: { orgSlug: string; projectSlug: string; runId: string }) =>
     ipcRenderer.invoke('kanbots:cloud:runs-get', args) as Promise<AgentRunSummary>,
   cloudRunsStreamStart: (args: {

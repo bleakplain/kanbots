@@ -175,6 +175,11 @@ export interface KanbotsBridge {
     path: string;
     force?: boolean;
   }): Promise<{ ok: boolean; error?: string }>;
+  workspaceFileDiff(args: { worktreePath: string; filePath: string }): Promise<{
+    status: 'M' | 'A' | 'D' | 'R' | '??' | 'U' | null;
+    oldText: string | null;
+    newText: string | null;
+  }>;
   cloudRunsGet(args: {
     orgSlug: string;
     projectSlug: string;

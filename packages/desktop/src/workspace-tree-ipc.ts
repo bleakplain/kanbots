@@ -1,9 +1,11 @@
-import { exec } from 'node:child_process';
-import { readdir, stat } from 'node:fs/promises';
-import { isAbsolute, normalize, relative, resolve, sep } from 'node:path';
+import { exec, execFile } from 'node:child_process';
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { clipboard, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { removeWorktree as removeGitWorktree } from '@kanbots/dispatcher';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Workspace file-tree IPC. Drives the VSCode-style tree in the LeftRail.
@@ -418,6 +420,82 @@ export function registerWorkspaceTreeIpc(opts: WorkspaceTreeIpcOptions): void {
       }
     }
   };
+
+  /**
+   * Return the HEAD and current contents of a file inside a worktree
+   * (or the bound repo's main checkout). Used by the FileChangeViewer
+   * modal to render an InlineDiff. `null` for either text means the
+   * file doesn't exist on that side — added vs. deleted.
+   */
+  ipcMain.handle(
+    'kanbots:workspace:file-diff',
+    async (
+      _event,
+      args: { worktreePath: string; filePath: string },
+    ): Promise<{
+      status: 'M' | 'A' | 'D' | 'R' | '??' | 'U' | null;
+      oldText: string | null;
+      newText: string | null;
+    }> => {
+      const root = resolveRoot ? resolveRoot() : null;
+      if (root === null) return { status: null, oldText: null, newText: null };
+      // Defence: the worktree must belong to the active repo's
+      // `git worktree list` set so a compromised renderer can't ask
+      // us to diff an arbitrary file.
+      const allowed = await listWorktrees(root);
+      const wtAbs = resolve(args.worktreePath);
+      if (!allowed.some((w) => resolve(w) === wtAbs)) {
+        return { status: null, oldText: null, newText: null };
+      }
+      // And the file path itself must resolve inside the worktree.
+      const fileAbs = resolve(wtAbs, normalize(args.filePath));
+      if (fileAbs !== wtAbs && !fileAbs.startsWith(wtAbs + sep)) {
+        return { status: null, oldText: null, newText: null };
+      }
+      const relFromWt = relative(wtAbs, fileAbs).split(sep).join('/');
+
+      // Pull the porcelain status for this specific file so we know
+      // whether we're rendering a Modify / Add / Delete view.
+      let status: 'M' | 'A' | 'D' | 'R' | '??' | 'U' | null = null;
+      try {
+        const { stdout } = await execFileAsync(
+          'git',
+          ['status', '--porcelain=v1', '-z', '--', relFromWt],
+          { cwd: wtAbs, timeout: 5_000, maxBuffer: 524_288 },
+        );
+        const rec = stdout.split('\0').find((r) => r.length >= 3);
+        if (rec !== undefined) status = normaliseStatus(rec.slice(0, 2).trim());
+      } catch {
+        // file is clean / git missing — fall through with status=null
+      }
+
+      // Old text: `git show HEAD:<path>`. Treat any error (e.g. the
+      // file is new and not in HEAD) as "no old text".
+      let oldText: string | null = null;
+      try {
+        const { stdout } = await execFileAsync('git', ['show', `HEAD:${relFromWt}`], {
+          cwd: wtAbs,
+          timeout: 5_000,
+          maxBuffer: 4_194_304,
+          encoding: 'utf8',
+        });
+        oldText = stdout;
+      } catch {
+        oldText = null;
+      }
+
+      // New text: read the file from disk. Missing file (deletion) is
+      // expected; surface as null.
+      let newText: string | null = null;
+      try {
+        newText = await readFile(join(wtAbs, relFromWt), 'utf8');
+      } catch {
+        newText = null;
+      }
+
+      return { status, oldText, newText };
+    },
+  );
 }
 
 /**

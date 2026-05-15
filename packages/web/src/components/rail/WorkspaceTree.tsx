@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { getBridge } from '../../desktop-bridge.js';
+import { FileChangeViewer } from '../modals/FileChangeViewer.js';
 
 /**
  * VSCode-style file tree for the active local repo (cloud-bound or
@@ -163,9 +164,10 @@ interface RowProps {
   touched: ReadonlyMap<string, TouchedMeta>;
   rootPath: string;
   dispatch: React.Dispatch<TreeAction>;
+  onOpenChange: (filePath: string, worktrees: string[]) => void;
 }
 
-function TreeRow({ entry, depth, state, touched, rootPath, dispatch }: RowProps) {
+function TreeRow({ entry, depth, state, touched, rootPath, dispatch, onOpenChange }: RowProps) {
   const expanded = state.expanded.has(entry.path);
   const loading = state.loading.has(entry.path);
   const children = state.children[entry.path];
@@ -205,7 +207,17 @@ function TreeRow({ entry, depth, state, touched, rootPath, dispatch }: RowProps)
         }
         style={{ paddingLeft: indent }}
         onClick={() => {
-          if (entry.type === 'dir') dispatch({ kind: 'toggle', path: entry.path });
+          if (entry.type === 'dir') {
+            dispatch({ kind: 'toggle', path: entry.path });
+            return;
+          }
+          // Files: only act if the file has worktree changes — direct
+          // editing is out of scope for now. Untouched files stay
+          // inert so a stray click on a file row doesn't surprise the
+          // user with a modal of nothing.
+          if (touchedForThis !== undefined) {
+            onOpenChange(entry.path, touchedForThis.worktrees);
+          }
         }}
         title={
           touchedForThis
@@ -254,6 +266,7 @@ function TreeRow({ entry, depth, state, touched, rootPath, dispatch }: RowProps)
               touched={touched}
               rootPath={rootPath}
               dispatch={dispatch}
+              onOpenChange={onOpenChange}
             />
           ))
         )
@@ -273,6 +286,10 @@ export function WorkspaceTree({ header }: WorkspaceTreeProps) {
     files: {},
     worktrees: [],
   });
+  const [openChange, setOpenChange] = useState<{
+    filePath: string;
+    worktrees: string[];
+  } | null>(null);
   const [state, dispatch] = useReducer(reducer, undefined, () => ({
     expanded: new Set<string>(['']),
     children: {} as ChildrenCache,
@@ -434,9 +451,17 @@ export function WorkspaceTree({ header }: WorkspaceTreeProps) {
             touched={touched}
             rootPath={rootPath}
             dispatch={dispatch}
+            onOpenChange={(filePath, worktrees) => setOpenChange({ filePath, worktrees })}
           />
         ))
       )}
+      {openChange !== null ? (
+        <FileChangeViewer
+          filePath={openChange.filePath}
+          worktrees={openChange.worktrees}
+          onClose={() => setOpenChange(null)}
+        />
+      ) : null}
     </div>
   );
 }

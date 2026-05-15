@@ -1777,3 +1777,110 @@
   justify-content: center;
   flex-wrap: wrap;
 }
+
+/* FileChangeViewer (kb-modal-fcv): per-file diff + reply form. */
+.kb-modal-fcv { max-width: 920px; }
+.kb-fcv-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.kb-fcv-file {
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-fcv-body {
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+.kb-fcv-worktree {
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.kb-fcv-worktree-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(180deg, var(--bg-1), var(--bg-2));
+}
+.kb-fcv-worktree-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+  font-family: var(--ff-mono);
+}
+.kb-fcv-worktree-glyph { color: var(--ink-3); }
+.kb-fcv-worktree-sub { color: var(--ink-3); font-weight: normal; }
+.kb-fcv-worktree-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+.kb-fcv-diff-wrap {
+  padding: 10px 14px;
+  overflow-x: auto;
+  background: var(--bg);
+}
+.kb-fcv-empty {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-style: italic;
+}
+.kb-fcv-err { color: oklch(0.7 0.18 25); }
+.kb-fcv-ok  { color: oklch(0.72 0.16 145); }
+.kb-fcv-hint { font-size: 10.5px; color: var(--ink-3); }
+
+.kb-fcv-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--hairline-soft);
+  background: var(--bg-2);
+}
+.kb-fcv-reply.kb-fcv-reply-disabled {
+  font-style: italic;
+}
+.kb-fcv-reply-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+.kb-fcv-reply-text {
+  font-family: var(--ff-mono);
+  font-size: 12.5px;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 8px 10px;
+  resize: vertical;
+  min-height: 64px;
+}
+.kb-fcv-reply-text:focus {
+  outline: none;
+  border-color: var(--accent-line, var(--ink-2));
+}
+.kb-fcv-reply-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+}
