@@ -115,7 +115,13 @@ export function WorktreesSection() {
       } else if (action === 'copy') {
         await bridge.workspaceCopyPath({ path });
       } else if (action === 'remove') {
-        const res = await bridge.workspaceRemoveWorktree({ path });
+        // Pre-check the worktree's current dirty state; if anything is
+        // uncommitted, ask for `force: true` up front so the user sees
+        // one confirm dialog that names the destructive consequence,
+        // not two ("Remove?" -> error -> "Force?").
+        const target = worktrees?.find((w) => w.path === path);
+        const force = (target?.dirtyCount ?? 0) > 0;
+        const res = await bridge.workspaceRemoveWorktree({ path, ...(force ? { force } : {}) });
         if (!res.ok && res.error && res.error !== 'cancelled') setError(res.error);
         await refresh();
       }
