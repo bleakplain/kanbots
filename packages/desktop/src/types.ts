@@ -197,6 +197,23 @@ export interface KanbotsBridge {
     model?: string;
     provider?: 'claude-code' | 'codex-cli';
   }): Promise<{ runId: string }>;
+  workspaceCurrentRoot(): Promise<{ repoRoot: string | null }>;
+  workspaceReadDir(args: {
+    rootPath: string;
+    relPath: string;
+  }): Promise<Array<{ name: string; path: string; type: 'file' | 'dir' }>>;
+  workspaceWorktreeStatus(args: {
+    rootPath: string;
+  }): Promise<{
+    files: Record<
+      string,
+      { status: 'M' | 'A' | 'D' | 'R' | '??' | 'U'; worktrees: string[] }
+    >;
+    worktrees: string[];
+  }>;
+  workspaceSubscribeTouched(
+    handler: (payload: { filePath: string; worktreePath: string | null }) => void,
+  ): () => void;
   cloudRunsGet(args: {
     orgSlug: string;
     projectSlug: string;

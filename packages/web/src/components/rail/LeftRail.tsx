@@ -3,9 +3,10 @@ import { api } from '../../api.js';
 import { getBridge } from '../../desktop-bridge.js';
 import { useFetch } from '../../hooks/useFetch.js';
 import { useIssues } from '../../hooks/useIssues.js';
-import { useWorkspace, type WorkspaceFolder } from '../../hooks/useWorkspace.js';
+import { useWorkspace } from '../../hooks/useWorkspace.js';
 import { ageString, colorForLogin } from '../../labels.js';
 import type { ChatConversation, Issue } from '../../types.js';
+import { WorkspaceTree } from './WorkspaceTree.js';
 
 export interface LeftRailProps {
   selectedNumber: number | null;
@@ -20,32 +21,6 @@ export interface LeftRailProps {
   onOpenSentry?: () => void;
 }
 
-function FolderCard({
-  folder,
-  activeAgents,
-}: {
-  folder: WorkspaceFolder;
-  activeAgents: number;
-}) {
-  const glyph = folder.name.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || 'KB';
-  return (
-    <div className="kb-workspace" role="region" aria-label="Workspace folder">
-      <div className="kb-workspace-glyph" aria-hidden>
-        {glyph}
-      </div>
-      <div className="kb-workspace-meta">
-        <div className="kb-workspace-name">{folder.name}</div>
-        <div className="kb-workspace-path">{folder.branch}</div>
-      </div>
-      {activeAgents > 0 ? (
-        <div className="kb-workspace-pulse" aria-label={`${activeAgents} active agents`}>
-          <span className="kb-pulse" />
-          {activeAgents}
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 function LiveAgentRow({
   issue,
@@ -255,13 +230,24 @@ export function LeftRail({
   const currentFolder =
     ws.folders.find((f) => f.current) ?? ws.folders[0] ?? null;
 
+  const headerName = currentFolder?.name ?? ws.workspace.name ?? 'Workspace';
+  const headerSubtitle = currentFolder?.branch ?? null;
+
   return (
     <div className="kb-rail">
-      <div className="kb-rail-section">
-        <div className="kb-rail-label">Workspace</div>
-        {currentFolder ? (
-          <FolderCard folder={currentFolder} activeAgents={ws.workspace.activeAgents} />
-        ) : null}
+      <div className="kb-rail-section kb-rail-tree-section">
+        <div className="kb-rail-label">
+          Workspace
+          {ws.workspace.activeAgents > 0 ? (
+            <span className="kb-rail-label-pulse" aria-label={`${ws.workspace.activeAgents} active agents`}>
+              <span className="kb-pulse" />
+              {ws.workspace.activeAgents}
+            </span>
+          ) : null}
+        </div>
+        <WorkspaceTree
+          header={{ name: headerName, ...(headerSubtitle ? { subtitle: headerSubtitle } : {}) }}
+        />
       </div>
 
       {liveAgents.length > 0 ? (

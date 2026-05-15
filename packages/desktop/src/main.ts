@@ -98,6 +98,10 @@ import {
 } from './providers-ipc.js';
 import { registerCloudComposerHandlers } from './cloud-composer.js';
 import { startCloudRun, type CloudRunHandle } from './cloud-run-dispatcher.js';
+import {
+  broadcastWorkspaceTouched,
+  registerWorkspaceTreeIpc,
+} from './workspace-tree-ipc.js';
 import { SentryPoller } from './sentry-poller.js';
 import {
   decryptToken,
@@ -911,6 +915,19 @@ function registerIpc(): void {
   // local workspace transitions. Wrapped by the cloud-auth gate above.
   registerProvidersIpc();
 
+  // Workspace file tree + git-status IPC. Read source of truth lazily
+  // at call time so the same handlers serve both cloud-mode (bound
+  // local repo) and local-mode (current git workspace).
+  registerWorkspaceTreeIpc({
+    getCurrentRepoRoot: () => {
+      if (activeCloudWorkspace !== null && activeCloudWorkspace.localRepoPath !== null) {
+        return activeCloudWorkspace.localRepoPath;
+      }
+      if (activeWorkspace !== null) return activeWorkspace.repoPath;
+      return null;
+    },
+  });
+
   ipcMain.handle('kanbots:bootstrap', async (): Promise<BootstrapPayload> => {
     const [recents, cloudRecents, claudeAuthed, cloudStatus] = await Promise.all([
       pruneMissingRecents(),
@@ -1278,6 +1295,7 @@ function registerIpc(): void {
           'This cloud project is not bound to a local repository. Open Cloud Settings → Bind local repo, then try again.',
         );
       }
+      const cwd = activeCloudWorkspace.localRepoPath;
       const handle = await startCloudRun({
         cloudClient,
         orgSlug: args.orgSlug,
@@ -1289,7 +1307,20 @@ function registerIpc(): void {
           : {}),
         ...(args.model !== undefined ? { model: args.model } : {}),
         ...(args.provider !== undefined ? { provider: args.provider } : {}),
-        cwd: activeCloudWorkspace.localRepoPath,
+        cwd,
+        onEvent: (event) => {
+          // Forward edit-tool calls to the workspace tree so the badge
+          // lights up before the next git poll. `file_path`, `path`,
+          // and `filePath` cover the input-key naming variance between
+          // Claude Code and Codex tool calls.
+          if (event.kind !== 'tool_use') return;
+          if (!/^(Edit|Write|MultiEdit)$/i.test(event.name)) return;
+          const input = event.input as Record<string, unknown> | null | undefined;
+          if (input === null || input === undefined) return;
+          const raw = input['file_path'] ?? input['filePath'] ?? input['path'];
+          if (typeof raw !== 'string' || raw.length === 0) return;
+          broadcastWorkspaceTouched({ filePath: raw, worktreePath: cwd });
+        },
       });
       activeCloudRuns.set(handle.runId, handle);
       // Reap the handle once the run finishes so the map doesn't grow

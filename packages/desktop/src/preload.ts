@@ -133,6 +133,33 @@ const api: KanbotsBridge = {
     ipcRenderer.invoke('kanbots:cloud:start-agent-run', args) as Promise<{
       runId: string;
     }>,
+  workspaceCurrentRoot: () =>
+    ipcRenderer.invoke('kanbots:workspace:current-root') as Promise<{
+      repoRoot: string | null;
+    }>,
+  workspaceReadDir: (args: { rootPath: string; relPath: string }) =>
+    ipcRenderer.invoke('kanbots:workspace:read-dir', args) as Promise<
+      Array<{ name: string; path: string; type: 'file' | 'dir' }>
+    >,
+  workspaceWorktreeStatus: (args: { rootPath: string }) =>
+    ipcRenderer.invoke('kanbots:workspace:worktree-status', args) as Promise<{
+      files: Record<
+        string,
+        { status: 'M' | 'A' | 'D' | 'R' | '??' | 'U'; worktrees: string[] }
+      >;
+      worktrees: string[];
+    }>,
+  workspaceSubscribeTouched: (
+    handler: (payload: { filePath: string; worktreePath: string | null }) => void,
+  ) => {
+    void ipcRenderer.invoke('kanbots:workspace:subscribe-touched');
+    const listener = (
+      _e: unknown,
+      payload: { filePath: string; worktreePath: string | null },
+    ): void => handler(payload);
+    ipcRenderer.on('kanbots:workspace:touched', listener);
+    return () => ipcRenderer.off('kanbots:workspace:touched', listener);
+  },
   cloudRunsGet: (args: { orgSlug: string; projectSlug: string; runId: string }) =>
     ipcRenderer.invoke('kanbots:cloud:runs-get', args) as Promise<AgentRunSummary>,
   cloudRunsStreamStart: (args: {
