@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, shell } from 'electron';
 import {
   createAutopilotManager,
+  createChatHandlers,
   createCurator,
   createHandlers,
   createSupervisor,
@@ -14,6 +15,7 @@ import {
   startToolBridge,
   type AgentSupervisor,
   type AutopilotManager,
+  type ChatHandlers,
   type ChatToolRuntime,
   type DraftIssueFn,
   type Handlers,
@@ -164,6 +166,16 @@ const activeCloudRuns = new Map<string, CloudRunHandle>();
 const cloudRunStreamControllers = new Map<string, AbortController>();
 let mainWindow: BrowserWindow | null = null;
 const chatWindows = new Set<BrowserWindow>();
+
+/**
+ * Per-device chat store + supervisor. Lives at `userData/device-chats.db`
+ * so chat history survives workspace switches and works in cloud-only
+ * mode. Lazily initialized on first chat IPC; the cwd resolver below
+ * picks whichever workspace is currently active (local repo, cloud-bound
+ * local repo, or the userData fallback).
+ */
+let deviceChatStore: Store | null = null;
+let deviceChatSupervisor: AgentSupervisor | null = null;
 
 const DEFAULT_CLOUD_BASE_URL =
   process.env['KANBOTS_CLOUD_BASE_URL'] ?? 'https://app.kanbots.dev';
@@ -871,6 +883,82 @@ function closeActiveCloudWorkspace(): void {
   }
 }
 
+function deviceChatDbPath(): string {
+  return join(app.getPath('userData'), 'device-chats.db');
+}
+
+/**
+ * Working directory used for chat agent runs, resolved at dispatch time
+ * so a chat started in cloud-only mode picks up the bound local repo as
+ * soon as the user opens one. Falls back to userData when nothing's
+ * bound — the agent CLI still launches; only filesystem tools have a
+ * meaningful scope to act on.
+ */
+function resolveChatCwd(): string {
+  if (activeWorkspace !== null) return activeWorkspace.repoPath;
+  if (activeCloudWorkspace !== null && activeCloudWorkspace.localRepoPath !== null) {
+    return activeCloudWorkspace.localRepoPath;
+  }
+  return app.getPath('userData');
+}
+
+async function ensureDeviceChat(): Promise<{
+  store: Store;
+  supervisor: AgentSupervisor;
+}> {
+  if (deviceChatStore !== null && deviceChatSupervisor !== null) {
+    return { store: deviceChatStore, supervisor: deviceChatSupervisor };
+  }
+  const store = openStore({ path: deviceChatDbPath() });
+  const supervisor = await createSupervisor({
+    store,
+    repoPath: resolveChatCwd,
+  });
+  deviceChatStore = store;
+  deviceChatSupervisor = supervisor;
+  return { store, supervisor };
+}
+
+function registerDeviceChatIpc(): void {
+  let handlers: ChatHandlers | null = null;
+  async function getHandlers(): Promise<ChatHandlers> {
+    if (handlers !== null) return handlers;
+    const { store, supervisor } = await ensureDeviceChat();
+    handlers = createChatHandlers({ store, supervisor });
+    return handlers;
+  }
+  const channels: Array<keyof ChatHandlers> = [
+    'chat:list',
+    'chat:create',
+    'chat:get',
+    'chat:rename',
+    'chat:delete',
+    'chat:post-message',
+    'chat:stop-run',
+  ];
+  for (const channel of channels) {
+    ipcMain.handle(
+      `kanbots:invoke:${channel}`,
+      async (_event, args: unknown) => {
+        try {
+          const map = await getHandlers();
+          // The Handlers map types args per-channel; the IPC bridge passes them
+          // through opaquely so the runtime cast is safe.
+          const fn = map[channel] as (a: unknown) => Promise<unknown>;
+          return await fn(args);
+        } catch (err) {
+          throw new Error(
+            JSON.stringify({
+              code: err instanceof Error && err.name ? err.name : 'Error',
+              message: err instanceof Error ? err.message : String(err),
+            }),
+          );
+        }
+      },
+    );
+  }
+}
+
 // Cloud-only launch: channels callable without a valid cloud session.
 // Everything else is gated by the wrapper installed in registerIpc().
 //   - bootstrap surfaces the cloudAuthed flag so the renderer can route to sign-in
@@ -927,6 +1015,12 @@ function registerIpc(): void {
       return null;
     },
   });
+
+  // Chat IPCs are per-device (live at userData/device-chats.db) so chat
+  // history persists across workspace switches and works in cloud-only
+  // mode. Registered at app scope; the workspace-scoped registerHandlers
+  // skips `chat:*` (see ipc/register.ts).
+  registerDeviceChatIpc();
 
   ipcMain.handle('kanbots:bootstrap', async (): Promise<BootstrapPayload> => {
     const [recents, cloudRecents, claudeAuthed, cloudStatus] = await Promise.all([
@@ -1203,6 +1297,26 @@ function registerIpc(): void {
   );
 
   ipcMain.handle(
+    'kanbots:cloud:cards-archive',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; number: number },
+    ): Promise<void> => {
+      await cloudClient.cards.archive(args.orgSlug, args.projectSlug, args.number);
+    },
+  );
+
+  ipcMain.handle(
+    'kanbots:cloud:cards-unarchive',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; number: number },
+    ): Promise<CardSummary> => {
+      return cloudClient.cards.unarchive(args.orgSlug, args.projectSlug, args.number);
+    },
+  );
+
+  ipcMain.handle(
     'kanbots:cloud:comments-list',
     async (
       _event,
@@ -1348,6 +1462,34 @@ function registerIpc(): void {
           );
           for await (const ev of iter) {
             if (sender.isDestroyed()) break;
+            // sync-09: stop_signal is the downstream cancel channel.
+            // When the cloud injects one (via the new
+            // `/runs/:id/stop` endpoint or autopilot timeout), the
+            // local handle.stop() kills the in-progress CLI so it
+            // doesn't keep eating tokens for a run nobody is watching.
+            //
+            // sync-01: decision_answer is delivered the same way after
+            // the user answers in the cloud UI. The handle's
+            // continueWithDecision spawns a follow-up CLI invocation
+            // in the same worktree whose prompt is the answer text.
+            // (Implementation is staged — for now we just surface a
+            // tagged renderer event so the UI can prompt the user.)
+            try {
+              if (typeof ev.event === 'string') {
+                if (ev.event === 'stop_signal') {
+                  const localHandle = activeCloudRuns.get(args.runId);
+                  if (localHandle !== undefined) localHandle.stop();
+                }
+                // The decision_answer fan-out is intentionally a
+                // renderer-side concern today: the user clicks
+                // "Continue from answer" and the UI invokes
+                // `kanbots:cloud:start-agent-run` with the answer as
+                // prompt. We just forward the event verbatim so the
+                // renderer can light the affordance.
+              }
+            } catch {
+              // Listener crash mustn't tear down the SSE pump.
+            }
             sender.send('kanbots:cloud:run-event', {
               subscriptionId,
               event: ev,
@@ -1382,6 +1524,29 @@ function registerIpc(): void {
       if (controller !== undefined) {
         controller.abort();
         cloudRunStreamControllers.delete(subscriptionId);
+      }
+    },
+  );
+
+  // sync-09: renderer-initiated stop. Aborts the locally-running CLI if
+  // the run is one of ours (in `activeCloudRuns`); always also POSTs
+  // to the cloud's stop endpoint so the run row transitions to
+  // `stopped` for cross-device consistency.
+  ipcMain.handle(
+    'kanbots:cloud:runs-stop',
+    async (
+      _event,
+      args: { orgSlug: string; projectSlug: string; runId: string; reason?: string },
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      const local = activeCloudRuns.get(args.runId);
+      if (local !== undefined) local.stop();
+      try {
+        await cloudClient.runs.stop(args.orgSlug, args.projectSlug, args.runId, {
+          ...(args.reason !== undefined ? { reason: args.reason } : {}),
+        });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
   );
@@ -1447,9 +1612,6 @@ function registerIpc(): void {
       conversationId: number | null,
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
       try {
-        if (!activeWorkspace) {
-          return { ok: false, error: 'no active workspace' };
-        }
         await createChatWindow(conversationId ?? null);
         return { ok: true };
       } catch (err) {
@@ -1513,13 +1675,14 @@ async function createWindow(): Promise<void> {
 }
 
 async function createChatWindow(conversationId: number | null): Promise<BrowserWindow> {
+  // Chat windows use the OS-native frame/title bar so they behave like
+  // a normal application window (move, resize, minimize, maximize from
+  // the OS). The main board window keeps its custom chrome.
   const win = new BrowserWindow({
     width: 880,
     height: 760,
     title: 'kanbots chat',
     ...appIconOption(),
-    frame: false,
-    titleBarStyle: 'hidden',
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, 'preload.cjs'),
@@ -1530,6 +1693,10 @@ async function createChatWindow(conversationId: number | null): Promise<BrowserW
   chatWindows.add(win);
   win.on('closed', () => {
     chatWindows.delete(win);
+    // Workspace-scoped subscription registry only exists when a local
+    // workspace is open. In cloud-only mode the chat window's
+    // agent-run streams (if any) come from the device chat path and
+    // there's nothing to release here.
     if (activeWorkspace) {
       activeWorkspace.subscriptions.closeAllForOwner(win.webContents.id);
     }

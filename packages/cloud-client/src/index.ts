@@ -20,10 +20,13 @@ import type {
   CreateOrgRequest,
   CreateOrgResponse,
   CreateProjectRequest,
+  LabelSummary,
   ListCardsQuery,
   OrgListResponse,
   ProjectListResponse,
   ProjectSummary,
+  PromoteRequest,
+  PromotionSummary,
   UpdateCardRequest,
   UserMe,
 } from './types.js';
@@ -63,6 +66,10 @@ export interface CloudClient {
       body: UpdateCardRequest,
       opts?: { ifMatch?: string },
     ): Promise<CardSummary>;
+    /** Soft-delete: sets archived_at. Backend accepts DELETE on the card. */
+    archive(orgSlug: string, projectSlug: string, number: number): Promise<void>;
+    /** Inverse of archive: clears archived_at. Returns the restored card. */
+    unarchive(orgSlug: string, projectSlug: string, number: number): Promise<CardSummary>;
   };
   comments: {
     list(
@@ -75,6 +82,8 @@ export interface CloudClient {
       projectSlug: string,
       number: number,
       body: string,
+      /** Per `sync-13`, supplying a parent_comment_id creates a threaded reply. */
+      opts?: { parentCommentId?: string },
     ): Promise<CommentSummary>;
     delete(orgSlug: string, commentId: string): Promise<void>;
   };
@@ -129,15 +138,105 @@ export interface CloudClient {
       opts?: { sessionId?: string },
     ): Promise<{ run_id: string; status: string; already_claimed?: boolean; started_at?: string }>;
     /**
+     * Set the per-run worktree path and branch name on the cloud row.
+     * Called by the dispatcher once the local worktree is created — the
+     * path embeds the run id so we can't supply these at create time.
+     * See `sync-06`.
+     */
+    setWorktree(
+      runId: string,
+      body: { worktreePath?: string | null; branchName?: string | null },
+    ): Promise<{ id: string; worktree_path: string | null; branch_name: string | null }>;
+    /**
+     * Stop a running cloud run from the cloud UI. Inserts a
+     * `stop_signal` event on the run's event stream so the downstream
+     * SSE consumer (desktop daemon) can abort the local CLI subprocess.
+     * Per `sync-09`.
+     */
+    stop(
+      orgSlug: string,
+      projectSlug: string,
+      runId: string,
+      opts?: { reason?: string },
+    ): Promise<{ id: string; status: string }>;
+    /**
+     * Record a promotion (commit landed, PR opened, or run discarded) on
+     * the cloud's `promotions` table. Per `sync-07`, called best-effort
+     * by the local `promoteCommit` / `promotePr` handlers so the cloud
+     * board can surface "PR #N — open" / "merged in <sha>" stickers.
+     */
+    promote(
+      orgSlug: string,
+      projectSlug: string,
+      runId: string,
+      body: PromoteRequest,
+    ): Promise<PromotionSummary>;
+    /**
+     * Discover pending runs scoped to an org the calling user belongs
+     * to. Used by the desktop to poll work queued from the web UI.
+     * Per `sync-08`.
+     */
+    listPending(
+      orgSlug: string,
+      opts?: { limit?: number },
+    ): Promise<{ data: AgentRunSummary[] }>;
+    /**
      * Append NDJSON events to a run owned by the caller. Lines are
      * `{type, payload, source?}` objects joined by `\n`. The cloud
      * derives terminal status (succeeded / failed / stopped) from
      * `type: 'result'` events automatically.
+     *
+     * Pass `opts.idempotencyKey` (any unique string per batch) so the
+     * cloud's event-ingest dedup cache (`sync-05`) replays the same
+     * response for a retried request instead of double-inserting.
      */
     appendEvents(
       runId: string,
       events: ReadonlyArray<{ type: string; payload?: unknown; source?: 'agent' | 'system' }>,
+      opts?: { idempotencyKey?: string },
     ): Promise<{ inserted: number; bad_lines: number; event_count: number; status: string }>;
+    /**
+     * Continue an `awaiting_input` cloud run by feeding the answered
+     * decision back to a fresh CLI invocation in the same worktree.
+     * Local equivalent of the supervisor's `cards:resolve` flow.
+     * Implemented client-side because the cloud has no notion of "spawn
+     * a new CLI" — only the desktop daemon does. See `sync-01`.
+     */
+    continueWithDecision?(
+      runId: string,
+      decision: { value: string; note?: string },
+    ): Promise<void>;
+  };
+  /**
+   * Labels API per `sync-14` — the cloud schema exists but the
+   * routes/client were missing. Mirrors the cloud `/projects/:p/labels`
+   * collection and the `/cards/:n/labels` attach/detach surface.
+   */
+  labels: {
+    list(orgSlug: string, projectSlug: string): Promise<{ data: LabelSummary[] }>;
+    create(
+      orgSlug: string,
+      projectSlug: string,
+      body: { name: string; color: string; description?: string },
+    ): Promise<LabelSummary>;
+    /** List labels currently attached to a card. */
+    listForCard(
+      orgSlug: string,
+      projectSlug: string,
+      cardNumber: number,
+    ): Promise<{ data: LabelSummary[] }>;
+    attach(
+      orgSlug: string,
+      projectSlug: string,
+      cardNumber: number,
+      labelId: string,
+    ): Promise<void>;
+    detach(
+      orgSlug: string,
+      projectSlug: string,
+      cardNumber: number,
+      labelId: string,
+    ): Promise<void>;
   };
   billing: {
     /**
@@ -245,6 +344,16 @@ export function createCloudClient(opts: CloudClientOptions): CloudClient {
           body,
           ...(ro?.ifMatch !== undefined ? { ifMatch: ro.ifMatch } : {}),
         }),
+      archive: (orgSlug, projectSlug, number) =>
+        request<void>(opts, {
+          method: 'DELETE',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/cards/${number}`,
+        }),
+      unarchive: (orgSlug, projectSlug, number) =>
+        request<CardSummary>(opts, {
+          method: 'POST',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/cards/${number}/unarchive`,
+        }),
     },
     comments: {
       list: (orgSlug, projectSlug, number) =>
@@ -252,11 +361,16 @@ export function createCloudClient(opts: CloudClientOptions): CloudClient {
           method: 'GET',
           path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/cards/${number}/comments`,
         }),
-      add: (orgSlug, projectSlug, number, bodyText) =>
+      add: (orgSlug, projectSlug, number, bodyText, addOpts) =>
         request<CommentSummary>(opts, {
           method: 'POST',
           path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/cards/${number}/comments`,
-          body: { body: bodyText },
+          body: {
+            body: bodyText,
+            ...(addOpts?.parentCommentId !== undefined
+              ? { parent_comment_id: addOpts.parentCommentId }
+              : {}),
+          },
         }),
       delete: (orgSlug, commentId) =>
         request<void>(opts, {
@@ -307,7 +421,7 @@ export function createCloudClient(opts: CloudClientOptions): CloudClient {
           path: `/api/v1/agent/runs/${encodeURIComponent(runId)}/claim`,
           body: claimOpts?.sessionId !== undefined ? { session_id: claimOpts.sessionId } : {},
         }),
-      appendEvents: (runId, events) => {
+      appendEvents: (runId, events, appendOpts) => {
         const ndjson = events.map((e) => JSON.stringify(e)).join('\n');
         return request<{
           inserted: number;
@@ -319,8 +433,73 @@ export function createCloudClient(opts: CloudClientOptions): CloudClient {
           path: `/api/v1/agent/runs/${encodeURIComponent(runId)}/events`,
           rawBody: ndjson,
           rawContentType: 'application/x-ndjson',
+          ...(appendOpts?.idempotencyKey !== undefined
+            ? { idempotencyKey: appendOpts.idempotencyKey }
+            : {}),
         });
       },
+      setWorktree: (runId, body) =>
+        request<{ id: string; worktree_path: string | null; branch_name: string | null }>(
+          opts,
+          {
+            method: 'PATCH',
+            path: `/api/v1/agent/runs/${encodeURIComponent(runId)}`,
+            body: {
+              ...(body.worktreePath !== undefined ? { worktree_path: body.worktreePath } : {}),
+              ...(body.branchName !== undefined ? { branch_name: body.branchName } : {}),
+            },
+          },
+        ),
+      stop: (orgSlug, projectSlug, runId, stopOpts) =>
+        request<{ id: string; status: string }>(opts, {
+          method: 'POST',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/runs/${encodeURIComponent(runId)}/stop`,
+          body: stopOpts?.reason !== undefined ? { reason: stopOpts.reason } : {},
+        }),
+      promote: (orgSlug, projectSlug, runId, body) =>
+        request<PromotionSummary>(opts, {
+          method: 'POST',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/runs/${encodeURIComponent(runId)}/promotions`,
+          body,
+        }),
+      listPending: (orgSlug, pendingOpts) => {
+        const q: Record<string, string | number | undefined> = {};
+        if (pendingOpts?.limit !== undefined) q.limit = pendingOpts.limit;
+        return request<{ data: AgentRunSummary[] }>(opts, {
+          method: 'GET',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/agent/runs/pending`,
+          query: q,
+        });
+      },
+    },
+    labels: {
+      list: (orgSlug, projectSlug) =>
+        request<{ data: LabelSummary[] }>(opts, {
+          method: 'GET',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/labels`,
+        }),
+      create: (orgSlug, projectSlug, body) =>
+        request<LabelSummary>(opts, {
+          method: 'POST',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/labels`,
+          body,
+        }),
+      listForCard: (orgSlug, projectSlug, cardNumber) =>
+        request<{ data: LabelSummary[] }>(opts, {
+          method: 'GET',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/cards/${cardNumber}/labels`,
+        }),
+      attach: (orgSlug, projectSlug, cardNumber, labelId) =>
+        request<void>(opts, {
+          method: 'POST',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/cards/${cardNumber}/labels`,
+          body: { label_id: labelId },
+        }),
+      detach: (orgSlug, projectSlug, cardNumber, labelId) =>
+        request<void>(opts, {
+          method: 'DELETE',
+          path: `/api/v1/orgs/${encodeURIComponent(orgSlug)}/projects/${encodeURIComponent(projectSlug)}/cards/${cardNumber}/labels/${encodeURIComponent(labelId)}`,
+        }),
     },
     billing: {
       costToday: (orgSlug) =>

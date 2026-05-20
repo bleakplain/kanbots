@@ -14,6 +14,17 @@ export type StreamEvent =
       kind: 'decision';
       question: string;
       options: Array<{ value: string; label: string }>;
+      /**
+       * Per-decision TTL override (seconds). When set on the
+       * `kanbots-decision` JSON block, the cloud caps `decisions.time_out_at`
+       * at `opened_at + timeoutSeconds` instead of the default 24h.
+       * See bug `sync-10` and `brain/06-agent-bridge/decisions-protocol.md`.
+       */
+      timeoutSeconds?: number;
+      /** Optional default option value when the user fails to answer in time. */
+      defaultValue?: string;
+      /** Optional risk classification surfaced in the cloud UI. */
+      riskLevel?: 'low' | 'medium' | 'high';
     }
   | {
       kind: 'result';
@@ -390,7 +401,26 @@ function parseDecisionBody(body: string): StreamEvent | null {
     if (value && label) options.push({ value, label });
   }
   if (options.length === 0) return null;
-  return { kind: 'decision', question, options };
+
+  // sync-10: propagate optional metadata from the JSON block. The
+  // canonical spec is `brain/06-agent-bridge/decisions-protocol.md`.
+  // Each field is conservatively typed at the parser boundary so a
+  // malformed block (e.g. `"timeout_seconds": "soon"`) is simply
+  // dropped rather than crashing the run or sending garbage upstream.
+  const out: Extract<StreamEvent, { kind: 'decision' }> = {
+    kind: 'decision',
+    question,
+    options,
+  };
+  const ttl = parsed.timeout_seconds;
+  if (typeof ttl === 'number' && Number.isFinite(ttl) && ttl > 0) {
+    out.timeoutSeconds = Math.floor(ttl);
+  }
+  const dv = parsed.default_value;
+  if (typeof dv === 'string' && dv.length > 0) out.defaultValue = dv;
+  const rl = parsed.risk_level;
+  if (rl === 'low' || rl === 'medium' || rl === 'high') out.riskLevel = rl;
+  return out;
 }
 
 function mapUser(raw: RawUser): StreamEvent[] {

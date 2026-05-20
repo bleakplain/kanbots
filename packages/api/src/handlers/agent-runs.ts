@@ -233,6 +233,23 @@ export async function promoteCommit(
   // Mark the run as promoted (monotonic upgrade — won't regress earlier
   // signals like `failed`/`stopped` if a user force-promotes a partial run).
   deps.store.agentRuns.upgradeSuccessSignal(run.id, 'promoted');
+  // sync-07: best-effort report to cloud so the board surfaces the
+  // merge sticker. Only fires when the run originated in a cloud
+  // workspace (the IPC layer wires `cloudPromote` only then).
+  if (deps.cloudPromote !== undefined) {
+    try {
+      await deps.cloudPromote({
+        localRunId: run.id,
+        kind: 'commit',
+        commitSha,
+        targetBranch: base,
+        ...(run.branchName !== null ? { sourceBranch: run.branchName } : {}),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[agent-runs] cloudPromote(commit) failed:', err instanceof Error ? err.message : err);
+    }
+  }
   return { commitSha, base, cleanup };
 }
 
@@ -484,6 +501,28 @@ export async function promotePr(
   // PR open is a "promoted" signal too — the user has chosen to land this
   // run via review rather than direct commit. Monotonic upgrade.
   deps.store.agentRuns.upgradeSuccessSignal(run.id, 'promoted');
+  // sync-07: report the PR to cloud so the board's "Open PR" sticker
+  // and PR number land server-side. Best-effort — if the cloud is
+  // unreachable the local promote still wins. The `PullRequest` shape
+  // declares the GitHub PR's url as `htmlUrl`; we map onto the
+  // cloud's snake-case `pr_url` here so the wire contract stays
+  // consistent with the rest of the v1 API.
+  if (deps.cloudPromote !== undefined) {
+    try {
+      await deps.cloudPromote({
+        localRunId: run.id,
+        kind: 'pr',
+        targetBranch: base,
+        ...(run.branchName !== null ? { sourceBranch: run.branchName } : {}),
+        ...(pr.htmlUrl ? { prUrl: pr.htmlUrl } : {}),
+        ...(pr.number ? { prNumber: pr.number } : {}),
+        prProvider: 'github',
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[agent-runs] cloudPromote(pr) failed:', err instanceof Error ? err.message : err);
+    }
+  }
   return { pr };
 }
 

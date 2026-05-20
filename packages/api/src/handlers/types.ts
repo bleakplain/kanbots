@@ -86,6 +86,35 @@ export interface HandlerDeps {
    * triggered the suggest call so the UI can show ideation progress.
    */
   onSuggestEvent?: (event: PlannerEvent) => void;
+  /**
+   * Optional sink for cloud-side promotion records — per `sync-07`. The
+   * local app drives `promoteCommit`/`promotePr`; if the supervising
+   * thread/run originated from a cloud workspace, the IPC layer wires
+   * a callback that POSTs to
+   * `/api/v1/orgs/:slug/projects/:p/runs/:id/promotions` so the cloud
+   * board surfaces the PR/merge sticker. Best-effort — failures log
+   * and don't break the local promotion.
+   */
+  cloudPromote?: (input: CloudPromoteInput) => Promise<void> | void;
+}
+
+/**
+ * Inputs the IPC layer hands to `cloudPromote`. We don't expose the
+ * cloud client itself in `HandlerDeps` because the api package is
+ * meant to be transport-agnostic (the CLI/desktop wires up the right
+ * implementation). The IPC layer holds the org/project slug for the
+ * current cloud workspace and supplies them here.
+ */
+export interface CloudPromoteInput {
+  localRunId: number;
+  kind: 'commit' | 'pr' | 'discard';
+  sourceBranch?: string;
+  targetBranch?: string;
+  commitSha?: string;
+  prProvider?: string;
+  prUrl?: string;
+  prNumber?: number;
+  abandonedReason?: string;
 }
 
 export interface SubscriptionRegisterArgs {

@@ -48,6 +48,14 @@ export interface RequestInput {
   raw?: boolean;
   /** Optional `If-Match` header value (quoted ETag). */
   ifMatch?: string;
+  /**
+   * Optional `Idempotency-Key` header value — per `sync-05`, the cloud's
+   * agent-event ingest dedupes responses keyed on
+   * `(run_id, Idempotency-Key)` for 24 h. Callers that retry the same
+   * batch (network blip, gateway timeout) must reuse the same key so the
+   * server returns the cached response instead of double-inserting.
+   */
+  idempotencyKey?: string;
   /** Multipart bodies — caller passes a FormData / Blob / Uint8Array. */
   rawBody?: BodyInit;
   rawContentType?: string;
@@ -81,6 +89,9 @@ export async function request<T>(
     ...(await bypassHeaders(opts)),
   };
   if (input.ifMatch !== undefined) headers['if-match'] = input.ifMatch;
+  if (input.idempotencyKey !== undefined) {
+    headers['idempotency-key'] = input.idempotencyKey;
+  }
 
   let body: BodyInit | undefined;
   if (input.rawBody !== undefined) {

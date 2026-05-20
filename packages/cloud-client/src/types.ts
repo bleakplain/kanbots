@@ -147,7 +147,20 @@ export interface UpdateCardRequest {
 export interface CommentSummary {
   id: string;
   card_id: string;
-  author_user_id: string;
+  /**
+   * Threaded-reply parent, null for top-level comments. The cloud
+   * comments route surfaces this field — pre-fix the local type
+   * dropped it, so a threaded comment from the cloud silently lost
+   * its parent link in the renderer. See bug `sync-13`.
+   */
+  parent_comment_id: string | null;
+  /**
+   * Null for system-authored comments (autopilot summaries, run
+   * outcome stickers). The cloud route returns null in that case; the
+   * old non-nullable type let `String(null)` produce the literal
+   * `"null"` everywhere a renderer destructured the field.
+   */
+  author_user_id: string | null;
   body: string;
   edited_at: string | null;
   created_at: string;
@@ -221,6 +234,57 @@ export interface CreateAgentRunRequest {
   cli?: string;
   model?: string;
   provider?: string;
+}
+
+/**
+ * Promotion record per `cloud/packages/db/src/schema/promotions.ts`.
+ * Surfaced as the response body for `runs.promote`. See bug `sync-07`.
+ */
+export type PromotionKind = 'commit' | 'pr' | 'discard';
+export type PromotionStatus = 'draft' | 'opened_pr' | 'merged' | 'abandoned';
+
+export interface PromotionSummary {
+  id: string;
+  card_id: string;
+  agent_run_id: string | null;
+  kind: PromotionKind;
+  status: PromotionStatus;
+  source_branch: string | null;
+  target_branch: string | null;
+  commit_sha: string | null;
+  pr_provider: string | null;
+  pr_url: string | null;
+  pr_number: number | null;
+  pr_merged_at: string | null;
+  pr_closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PromoteRequest {
+  kind: PromotionKind;
+  source_branch?: string;
+  target_branch?: string;
+  commit_sha?: string;
+  pr_provider?: string;
+  pr_url?: string;
+  pr_number?: number;
+  abandoned_reason?: string;
+}
+
+/**
+ * Label as exposed by the cloud `/projects/:p/labels` endpoints. Per
+ * bug `sync-14` — the labels schema exists in the cloud DB but had no
+ * API surface; this is the client-side shape mirroring the cloud row.
+ */
+export interface LabelSummary {
+  id: string;
+  project_id: string;
+  name: string;
+  color: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ApiErrorBody {
