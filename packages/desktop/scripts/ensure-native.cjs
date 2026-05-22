@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const { spawnSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { existsSync, readFileSync, writeFileSync } = require('node:fs');
+const { existsSync, readFileSync, unlinkSync, writeFileSync } = require('node:fs');
 const { dirname, join, resolve } = require('node:path');
 
 const desktopRoot = resolve(__dirname, '..');
@@ -48,6 +48,21 @@ if (existsSync(marker) && readFileSync(marker, 'utf-8').trim() === fingerprint()
 console.log(
   `[ensure-native] fetching better-sqlite3 prebuild for Electron ${electronVersion} (${targetPlatform}/${targetArch})…`,
 );
+
+// Unlink the existing binary and marker before prebuild-install rewrites them.
+// prebuild-install extracts via tar streams that open files with O_TRUNC, which
+// would mutate any pre-existing hard link in place — including one that
+// electron-builder already created inside a packaged .app dir (release/mac-arm64).
+// Breaking the source-side link first keeps prior .app dirs pinned to the OLD
+// inode/content. Without this, packing arm64 then x64 leaves both .apps with the
+// x64 binary because the marker+binary inodes are shared via hard link.
+for (const p of [binPath, marker]) {
+  try {
+    unlinkSync(p);
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+}
 
 const result = spawnSync(
   process.execPath,
