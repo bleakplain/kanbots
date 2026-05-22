@@ -165,8 +165,19 @@
   animation: kb-pulse 1.4s infinite;
 }
 
-/* File tree (workspace section, VSCode-style) */
+/* File tree (workspace section, VSCode-style)
+   Flex chain: .kb-rail (col) → .kb-rail-tree-section (col, flex:1, min-h:0)
+   → .kb-rail-section-body (col, flex:1, min-h:0) → .kb-tree (overflow-y).
+   Every link needs min-height: 0, otherwise the inner overflow:auto has
+   no fixed parent height to scroll against and the tree expands to its
+   intrinsic size, pushing the Worktrees / Chats / footer off-screen. */
 .kb-rail-tree-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.kb-rail-tree-section > .kb-rail-section-body {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -176,6 +187,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  flex: 1 1 auto;
   overflow-y: auto;
   border-radius: 7px;
   background: var(--bg-2);

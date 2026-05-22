@@ -14,7 +14,7 @@ import {
   dispatchIssuesRefetch,
   ISSUES_CHANGED_CHANNEL,
 } from '../../hooks/useIssues.js';
-import { useAgentRunStream } from '../../hooks/useAgentRunStream.js';
+import { useIssueRunStream } from '../../hooks/useIssueRunStream.js';
 import {
   ageString,
   areaLabels,
@@ -309,12 +309,17 @@ export function TaskDetailModal({ issueNumber, onClose }: TaskDetailModalProps) 
                     <AutopilotTab issueNumber={issue.number} />
                   ) : null}
                   {tab === 'overview' ? (
-                    <OverviewTab issue={issue} displayRun={displayRun} />
+                    <OverviewTab
+                      issue={issue}
+                      displayRun={displayRun}
+                      cloudRunId={issue.cloudLatestRunId ?? issue.activeRun?.cloudRunId ?? null}
+                    />
                   ) : null}
                   {tab === 'thread' && !isAutopilot ? (
                     <ThreadTab
                       activeRun={activeRun}
                       displayRun={displayRun}
+                      cloudRunId={issue.cloudLatestRunId ?? issue.activeRun?.cloudRunId ?? null}
                       messages={messages}
                       issueNumber={issueNumber}
                       issueLabels={issue.labels}
@@ -567,11 +572,13 @@ function LinkedIssues({
 function OverviewTab({
   issue,
   displayRun,
+  cloudRunId,
 }: {
   issue: IssueDetailPayload['issue'];
   displayRun: AgentRun | null;
+  cloudRunId: string | null;
 }) {
-  const stream = useAgentRunStream(displayRun?.id ?? null);
+  const stream = useIssueRunStream(displayRun, cloudRunId);
   const recentToolCalls = stream.events.filter((e) => e.type === 'tool_use').slice(-4).reverse();
   const resultByToolUseId = buildResultIndex(stream.events);
   const acMatches = (issue.body ?? '').match(/(?:^|\n)\s*AC:\s*\n((?:[-*]\s.+\n?)+)/);
@@ -768,6 +775,7 @@ type TimelineItem =
 function ThreadTab({
   activeRun,
   displayRun,
+  cloudRunId,
   messages,
   issueNumber,
   issueLabels,
@@ -776,14 +784,16 @@ function ThreadTab({
 }: {
   activeRun: AgentRun | null;
   displayRun: AgentRun | null;
+  cloudRunId: string | null;
   messages: Message[];
   issueNumber: number;
   issueLabels: readonly string[];
   issueStatus: StatusKey | null;
   onActionDone: () => void;
 }) {
-  const stream = useAgentRunStream(displayRun?.id ?? null);
-  const isLive = activeRun !== null && activeRun.id === displayRun?.id;
+  const stream = useIssueRunStream(displayRun, cloudRunId);
+  const isLive =
+    cloudRunId !== null || (activeRun !== null && activeRun.id === displayRun?.id);
 
   const cardsByMessageId = new Map<number, Card[]>();
   for (const c of stream.cards) {

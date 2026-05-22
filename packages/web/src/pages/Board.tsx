@@ -19,6 +19,8 @@ import { CardPreview } from '../components/Card.js';
 import { Column, type SuggestActivity } from '../components/Column.js';
 import { PersonaPickerModal } from '../components/modals/PersonaPickerModal.js';
 import { useBoardAgentStreams } from '../hooks/useBoardAgentStreams.js';
+import { useCloudBoardStreams } from '../hooks/useCloudBoardStreams.js';
+import { getCloudCtx } from '../api.js';
 import { useBoardFilters } from '../hooks/useBoardFilters.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useIssues, dispatchIssuesRefetch } from '../hooks/useIssues.js';
@@ -131,7 +133,34 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
     () => list.filter((i) => i.activeRun !== null).map((i) => i.activeRun!.id),
     [list],
   );
-  const liveByRun = useBoardAgentStreams(activeRunIds);
+  const liveByRunLocal = useBoardAgentStreams(activeRunIds);
+
+  // Cloud board cards carry their cloud-run KSUID on activeRun.cloudRunId
+  // (set by cardToIssue); subscribe per-card so live tool/arg ticks the
+  // way it does locally. The two RunLiveMaps share the same key shape
+  // (activeRun.id), so merging them is a flat spread.
+  const cloudCtx = getCloudCtx();
+  const cloudEntries = useMemo(
+    () =>
+      list
+        .filter(
+          (i): i is typeof i & { activeRun: NonNullable<typeof i.activeRun> } =>
+            i.activeRun !== null && typeof i.activeRun.cloudRunId === 'string',
+        )
+        .map((i) => ({ key: i.activeRun.id, cloudRunId: i.activeRun.cloudRunId as string })),
+    [list],
+  );
+  const liveByRunCloud = useCloudBoardStreams(
+    cloudCtx?.orgSlug ?? null,
+    cloudCtx?.projectSlug ?? null,
+    cloudEntries,
+  );
+  const liveByRun = useMemo(() => {
+    if (liveByRunCloud.size === 0) return liveByRunLocal;
+    const merged = new Map(liveByRunLocal);
+    for (const [k, v] of liveByRunCloud) merged.set(k, v);
+    return merged;
+  }, [liveByRunLocal, liveByRunCloud]);
 
   useEffect(() => {
     if (!suggesting) return;
@@ -243,7 +272,11 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
     setPersonaPickerOpen(true);
   }
 
-  async function runSuggestionWith(persona: Persona, provider?: ProviderId): Promise<void> {
+  async function runSuggestionWith(
+    persona: Persona,
+    provider?: ProviderId,
+    userNotes?: string,
+  ): Promise<void> {
     setPersonaPickerOpen(false);
     if (suggesting) return;
     setSuggestActivity([]);
@@ -251,7 +284,7 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
     setSuggesting(true);
     setMoveError(null);
     try {
-      const drafted = await api.suggestFeature(persona.prompt, provider);
+      const drafted = await api.suggestFeature(persona.prompt, provider, userNotes);
       await api.createIssue({
         title: drafted.title,
         body: drafted.body,
@@ -338,7 +371,7 @@ export function Board({ onOpenDetail, onOpenCreate, onOpenPalette }: BoardProps 
       {personaPickerOpen ? (
         <PersonaPickerModal
           onClose={() => setPersonaPickerOpen(false)}
-          onPick={(persona, provider) => void runSuggestionWith(persona, provider)}
+          onPick={(persona, provider, notes) => void runSuggestionWith(persona, provider, notes)}
         />
       ) : null}
       {autopilotLaunchOpen ? (

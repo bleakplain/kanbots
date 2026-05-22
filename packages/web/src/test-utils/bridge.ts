@@ -70,6 +70,8 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     | 'cloudCardsCreate'
     | 'cloudCardsGet'
     | 'cloudCardsUpdate'
+    | 'cloudCardsArchive'
+    | 'cloudCardsUnarchive'
     | 'cloudCommentsList'
     | 'cloudCommentsAdd'
     | 'cloudAttachmentsList'
@@ -85,6 +87,7 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     | 'workspaceCopyPath'
     | 'workspaceRemoveWorktree'
     | 'workspaceFileDiff'
+    | 'workspaceFileRead'
     | 'cloudRunsGet'
     | 'cloudRunsStreamStart'
     | 'cloudRunsStreamStop'
@@ -144,6 +147,8 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     cloudCardsCreate: () => Promise.reject(new Error('fake bridge: no cloud cards')),
     cloudCardsGet: () => Promise.reject(new Error('fake bridge: no cloud cards')),
     cloudCardsUpdate: () => Promise.reject(new Error('fake bridge: no cloud cards')),
+    cloudCardsArchive: () => Promise.reject(new Error('fake bridge: no cloud cards')),
+    cloudCardsUnarchive: () => Promise.reject(new Error('fake bridge: no cloud cards')),
     cloudCommentsList: () => Promise.resolve({ data: [], next_cursor: null }),
     cloudCommentsAdd: () => Promise.reject(new Error('fake bridge: no cloud comments')),
     cloudAttachmentsList: () => Promise.resolve({ data: [] }),
@@ -159,6 +164,14 @@ export function installFakeBridge(opts: InstallOptions = {}): FakeBridge {
     workspaceCopyPath: () => Promise.resolve({ ok: true }),
     workspaceRemoveWorktree: () => Promise.resolve({ ok: true }),
     workspaceFileDiff: () => Promise.resolve({ status: null, oldText: null, newText: null }),
+    workspaceFileRead: () =>
+      Promise.resolve({
+        content: null,
+        size: 0,
+        truncated: false,
+        isBinary: false,
+        error: 'fake bridge: no file read',
+      }),
     cloudRunsGet: () => Promise.reject(new Error('fake bridge: no cloud runs')),
     cloudRunsStreamStart: () => Promise.resolve({ subscriptionId: 'fake' }),
     cloudRunsStreamStop: () => Promise.resolve(),

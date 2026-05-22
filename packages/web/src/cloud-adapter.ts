@@ -1,5 +1,5 @@
 import type { AgentRunStatus, CardStatus, CardSummary } from '@kanbots/cloud-client';
-import type { AgentKey, Issue, IssueDetail, StatusKey } from './types.js';
+import type { AgentKey, Issue, IssueActiveRun, IssueDetail, StatusKey } from './types.js';
 
 /**
  * Cloud-only launch — phase 1 unification: when a cloud workspace is open
@@ -55,20 +55,24 @@ export function localStatusToCloud(status: StatusKey | null): CardStatus {
 /**
  * Translates a local-mode label patch (used by drag-drop) into the cloud
  * status the API expects. The renderer encodes status as a `status:<key>`
- * label on each card; we look for that label here and map to CardStatus.
+ * label on each card (e.g. `status:in-progress`, kebab-cased — see
+ * STATUS_LABEL_NAMES in labels.ts); we look for that label here and map to
+ * CardStatus.
  */
+const LABEL_TO_CLOUD_STATUS: Record<string, CardStatus> = {
+  backlog: 'backlog',
+  todo: 'ready',
+  'in-progress': 'in_progress',
+  review: 'review',
+  done: 'done',
+};
+
 export function statusFromLabels(labels: readonly string[]): CardStatus | null {
   for (const label of labels) {
     if (!label.startsWith('status:')) continue;
-    const key = label.slice('status:'.length) as StatusKey;
-    switch (key) {
-      case 'backlog':
-      case 'todo':
-      case 'inProgress':
-      case 'review':
-      case 'done':
-        return localStatusToCloud(key);
-    }
+    const key = label.slice('status:'.length);
+    const mapped = LABEL_TO_CLOUD_STATUS[key];
+    if (mapped !== undefined) return mapped;
   }
   return null;
 }
@@ -97,6 +101,58 @@ export function agentFromRunStatus(status: AgentRunStatus): AgentKey | null {
   }
 }
 
+// Cloud runs are KSUID strings, but DecoratedIssue.activeRun.id is typed
+// as a number. For cloud cards we surface a synthetic numeric id derived
+// from the card number so downstream maps still work; the canonical
+// identifier — `cloudRunId` — lives alongside it so streaming hooks can
+// open an SSE subscription against /projects/:p/runs/:cloudRunId/stream.
+const RUNNING_CLOUD_STATUSES = new Set(['pending', 'running', 'awaiting_input']);
+
+// Cloud and local AgentRunStatus enums diverge (`pending` vs `starting`,
+// `succeeded`+`timed_out` vs `complete`). Map the cloud enum onto the
+// local one so DecoratedIssue.activeRun typechecks without widening the
+// renderer's status type.
+function cloudStatusToLocalRunStatus(status: AgentRunStatus): IssueActiveRun['status'] {
+  switch (status) {
+    case 'pending':
+      return 'starting';
+    case 'running':
+      return 'running';
+    case 'awaiting_input':
+      return 'awaiting_input';
+    case 'succeeded':
+      return 'complete';
+    case 'failed':
+    case 'timed_out':
+      return 'failed';
+    case 'stopped':
+      return 'stopped';
+    default:
+      return 'running';
+  }
+}
+
+function cloudActiveRunFor(card: CardSummary): IssueActiveRun | null {
+  const lr = card.latest_run;
+  if (lr === null) return null;
+  if (!RUNNING_CLOUD_STATUSES.has(lr.status)) return null;
+  return {
+    id: card.number,
+    status: cloudStatusToLocalRunStatus(lr.status),
+    branch: null,
+    model: null,
+    startedAt: lr.started_at,
+    currentTool: null,
+    currentArg: null,
+    totalCostUsd: lr.cost_usd_cents / 100,
+    pendingDecision: null,
+    checks: null,
+    previewUrl: null,
+    previewState: null,
+    cloudRunId: lr.id,
+  };
+}
+
 export function cardToIssue(card: CardSummary): Issue {
   const status = cloudStatusToLocal(card.status);
   const labels: string[] = [];
@@ -118,11 +174,12 @@ export function cardToIssue(card: CardSummary): Issue {
     isPullRequest: false,
     status,
     agent,
-    // DecoratedIssue.activeRun requires a numeric id; cloud runs are
-    // ULIDs. Until the renderer widens that type (separate refactor),
-    // we surface agent state via `agent` only and leave activeRun null.
-    activeRun: null,
+    activeRun: cloudActiveRunFor(card),
     sentryMeta: null,
+    // Always expose the latest cloud run id (even when terminal) so the
+    // detail modal can replay the run's events via SSE after it
+    // finishes — without it the thread goes blank on the next render.
+    ...(card.latest_run !== null ? { cloudLatestRunId: card.latest_run.id } : {}),
   };
 }
 

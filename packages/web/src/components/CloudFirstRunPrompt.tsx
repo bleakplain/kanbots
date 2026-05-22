@@ -1,12 +1,14 @@
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useState, type MouseEvent } from 'react';
 import { Logo } from './Logo.js';
 import { CloudSettingsModal } from './modals/CloudSettingsModal.js';
-import type { CloudStatusPayload } from '../desktop-bridge.js';
+import { getBridge, type CloudStatusPayload } from '../desktop-bridge.js';
 
-// Cloud-only launch: the gate is now non-dismissible. `onDismissed` was
-// removed from the props; sign-in is the only exit.
+// Local-first launch: cloud sign-in is OPTIONAL. The prompt is dismissible
+// via "Continue locally" or Escape; the dismissal is persisted through
+// `kanbots:cloud-prompt-dismiss` so the user is not nagged again.
 export interface CloudFirstRunPromptProps {
   onSignedIn: () => void;
+  onDismissed: () => void;
 }
 
 const CheckIcon = (
@@ -45,20 +47,13 @@ const HeroIcon = (
 );
 
 /**
- * Cloud-only launch: shown whenever the user is not signed in to Kanbots
- * Cloud. The gate has no dismissal — sign-in is the only path forward.
+ * Local-first launch: shown on first run to introduce Kanbots Cloud as an
+ * optional add-on. Users can sign in OR continue locally; either choice
+ * dismisses the prompt for future sessions.
  */
-export function CloudFirstRunPrompt({ onSignedIn }: CloudFirstRunPromptProps) {
+export function CloudFirstRunPrompt({ onSignedIn, onDismissed }: CloudFirstRunPromptProps) {
   const [showSettings, setShowSettings] = useState(false);
-  const [busy] = useState(false);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') e.preventDefault();
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  const [busy, setBusy] = useState(false);
 
   function handleStatusChange(status: CloudStatusPayload): void {
     if (status.authed) onSignedIn();
@@ -66,6 +61,23 @@ export function CloudFirstRunPrompt({ onSignedIn }: CloudFirstRunPromptProps) {
 
   function stopInner(e: MouseEvent<HTMLDivElement>): void {
     e.stopPropagation();
+  }
+
+  async function dismiss(): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    try {
+      // Persist dismissal so subsequent launches skip the prompt.
+      // Best-effort — if the bridge is unavailable (browser-only dev)
+      // we still propagate the dismissal up to the parent so the user
+      // can keep working.
+      const bridge = getBridge();
+      if (bridge) {
+        await bridge.cloudPromptDismiss().catch(() => undefined);
+      }
+    } finally {
+      onDismissed();
+    }
   }
 
   if (showSettings) {
@@ -91,10 +103,11 @@ export function CloudFirstRunPrompt({ onSignedIn }: CloudFirstRunPromptProps) {
             <div className="kb-cloud-hero-icon" style={{ color: 'var(--accent)' }}>
               {HeroIcon}
             </div>
-            <h2 className="kb-cloud-hero-title">Sign in to continue</h2>
+            <h2 className="kb-cloud-hero-title">Sign in to Kanbots Cloud?</h2>
             <p className="kb-cloud-hero-tagline">
-              kanbots requires a Kanbots Cloud account. Sign in to access your
-              boards, dispatch agents, and sync with your team.
+              kanbots works fully offline on your machine. Kanbots Cloud is
+              optional and adds team sync, cross-device boards, and shared
+              run history.
             </p>
           </div>
 
@@ -125,7 +138,14 @@ export function CloudFirstRunPrompt({ onSignedIn }: CloudFirstRunPromptProps) {
             >
               Sign in to Kanbots Cloud
             </button>
-            {/* Cloud-only launch: "Continue local-only" CTA removed */}
+            <button
+              type="button"
+              className="kb-cloud-cta-secondary"
+              onClick={() => void dismiss()}
+              disabled={busy}
+            >
+              Continue locally
+            </button>
           </div>
 
           <p className="kb-cloud-fineprint">

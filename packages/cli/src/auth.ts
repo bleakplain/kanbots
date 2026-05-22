@@ -2,9 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 
-// Cloud-only launch: the desktop writes its session at the Electron
-// `userData` path for product name "kanbots". Mirror Electron's per-platform
-// defaults so the CLI can refuse to run when there is no session.
+// The desktop writes its Kanbots Cloud session at the Electron `userData`
+// path for product name "kanbots". Mirror Electron's per-platform defaults
+// so the CLI can detect (but no longer require) a cloud session. The CLI
+// runs locally without a session; only cloud-specific subcommands opt in
+// to `requireCloudAuth()` and bail when no session is present.
 function userDataDir(): string {
   const product = 'kanbots';
   const home = homedir();
@@ -23,29 +25,47 @@ interface MinimalCloudConfig {
   token_id?: unknown;
 }
 
+export interface CloudSession {
+  signedIn: true;
+  tokenId: string;
+}
+
 /**
- * Verifies a non-empty Kanbots Cloud session is present on disk. The CLI
- * cannot decrypt safeStorage-protected tokens, but presence of a token_id
- * is sufficient to gate command execution — the desktop performs the real
- * validation when commands route through the bridge.
+ * Reads the cloud session config from disk if present. Returns `null` when
+ * the user has not signed in via the desktop app. Never throws and never
+ * exits — callers decide what to do with a missing session.
+ *
+ * The CLI cannot decrypt safeStorage-protected tokens; the presence of a
+ * non-empty `token_id` is sufficient to mark the user as signed in. The
+ * desktop performs real validation when commands route through the bridge.
  */
-export async function requireCloudAuth(): Promise<void> {
+export async function getCloudSession(): Promise<CloudSession | null> {
   const path = join(userDataDir(), 'cloud-config.json');
   try {
     const raw = await readFile(path, 'utf8');
     const parsed = JSON.parse(raw) as MinimalCloudConfig;
     if (parsed.v !== 1 || typeof parsed.token_id !== 'string' || parsed.token_id.length === 0) {
-      bail();
+      return null;
     }
+    return { signedIn: true, tokenId: parsed.token_id };
   } catch {
-    bail();
+    return null;
   }
 }
 
-function bail(): never {
-  process.stderr.write(
-    'kanbots: cloud sign-in required.\n' +
-      '  Open the kanbots desktop app and sign in to Kanbots Cloud before running CLI commands.\n',
-  );
-  process.exit(2);
+/**
+ * Opt-in guard for cloud-dependent subcommands. Prints a clear sign-in
+ * message and exits non-zero when no session exists. Local-only commands
+ * must NOT call this — the CLI is usable without a cloud session.
+ */
+export async function requireCloudAuth(): Promise<CloudSession> {
+  const session = await getCloudSession();
+  if (session === null) {
+    process.stderr.write(
+      'kanbots: this command requires Kanbots Cloud.\n' +
+        '  Sign in via the desktop app or run `kanbots login` to enable cloud features.\n',
+    );
+    process.exit(2);
+  }
+  return session;
 }

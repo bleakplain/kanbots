@@ -136,6 +136,8 @@ export interface SuggestFeatureInput {
   backlog: SuggestFeatureBacklogEntry[];
   personaPrompt: string;
   provider?: ProviderId;
+  /** Free-form scope from the user — narrows the suggestion to a topic, area, or constraint. */
+  userNotes?: string;
   onEvent?: (event: PlannerEvent) => void;
 }
 
@@ -289,6 +291,10 @@ export interface IssueActiveRunPayload {
   deletions?: number | null;
   filesChanged?: number | null;
   progress?: number | null;
+  /** Cloud-mode KSUID for the run. Unset in local mode. Set when the
+   * issue comes from a cloud project so renderer hooks can open an SSE
+   * subscription against /projects/:p/runs/:cloudRunId/stream. */
+  cloudRunId?: string;
 }
 
 export interface DecoratedIssue extends Issue {
@@ -296,6 +302,11 @@ export interface DecoratedIssue extends Issue {
   agent: AgentKey | null;
   activeRun: IssueActiveRunPayload | null;
   sentryMeta: SentryMetaPayload | null;
+  /** Cloud-mode KSUID of the most recent run, populated whether or not
+   * the run is still active. The detail modal subscribes to this so the
+   * SSE endpoint replays the run's events even after it terminates,
+   * keeping the thread visible across refreshes. Unset in local mode. */
+  cloudLatestRunId?: string;
 }
 
 export interface ThreadPayload {
@@ -622,7 +633,7 @@ export interface BridgeChannels {
   };
   'composer:draft': { args: { description: string }; result: DraftedIssue };
   'composer:suggest': {
-    args: { personaPrompt: string; provider?: ProviderId };
+    args: { personaPrompt: string; provider?: ProviderId; userNotes?: string };
     result: DraftedIssue;
   };
   'attachments:upload': {

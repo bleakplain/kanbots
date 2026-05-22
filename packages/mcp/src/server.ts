@@ -6,12 +6,15 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { KANBOTS_TOOLS } from './index.js';
-import { requireCloudAuth } from './auth.js';
+import { CLOUD_SIGNIN_HINT, readCloudSession } from './auth.js';
 
-// Cloud-only launch: refuse to start without a signed-in kanbots session,
-// independent of the bridge env vars below. Defense-in-depth so the MCP
-// server cannot be wired up to a stale bridge or spoofed endpoint.
-await requireCloudAuth();
+// Local-only launch by default. Cloud sign-in is OPTIONAL: we read the
+// session status once at startup so we can annotate tool errors with a
+// helpful hint, but missing/expired cloud credentials never block the
+// server from starting. Cloud-dependent tools surface their own errors
+// when invoked without a session (the desktop tool-bridge enforces the
+// real auth boundary; this layer only proxies).
+const cloudSession = await readCloudSession();
 
 const BRIDGE_URL = process.env.KANBOTS_TOOL_BRIDGE_URL;
 const BRIDGE_TOKEN = process.env.KANBOTS_TOOL_BRIDGE_TOKEN;
@@ -74,9 +77,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // If the bridge rejected the call with what looks like an auth /
+    // cloud-session error and there is no signed-in session, append the
+    // sign-in hint so model clients get an actionable next step.
+    const looksLikeAuthError = /\b(401|403|unauthorized|forbidden|sign[\s-]?in|cloud)\b/i.test(
+      message,
+    );
+    const text =
+      !cloudSession.signedIn && looksLikeAuthError
+        ? `Error: ${message}\n\n${CLOUD_SIGNIN_HINT}`
+        : `Error: ${message}`;
     return {
       isError: true,
-      content: [{ type: 'text' as const, text: `Error: ${message}` }],
+      content: [{ type: 'text' as const, text }],
     };
   }
 });

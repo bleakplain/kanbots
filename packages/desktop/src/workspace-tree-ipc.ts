@@ -496,7 +496,73 @@ export function registerWorkspaceTreeIpc(opts: WorkspaceTreeIpcOptions): void {
       return { status, oldText, newText };
     },
   );
+
+  /**
+   * Read a file's current contents from the bound repo's main checkout
+   * for the read-only file viewer. Mirrors `file-diff`'s safety model:
+   * the path must resolve inside the active repo root. Bails on files
+   * larger than MAX_FILE_READ_BYTES so the renderer never has to handle
+   * a 50 MB blob, and probes for NUL bytes to flag binary content so
+   * the viewer can show a "binary file" stub instead of garbled text.
+   */
+  ipcMain.handle(
+    'kanbots:workspace:file-read',
+    async (
+      _event,
+      args: { filePath: string },
+    ): Promise<{
+      content: string | null;
+      size: number;
+      truncated: boolean;
+      isBinary: boolean;
+      error: string | null;
+    }> => {
+      const root = resolveRoot ? resolveRoot() : null;
+      if (root === null) {
+        return { content: null, size: 0, truncated: false, isBinary: false, error: 'no active workspace' };
+      }
+      const rootAbs = resolve(root);
+      const fileAbs = resolveSafe(rootAbs, args.filePath);
+      if (fileAbs === null) {
+        return { content: null, size: 0, truncated: false, isBinary: false, error: 'path escapes workspace' };
+      }
+      try {
+        const st = await stat(fileAbs);
+        if (!st.isFile()) {
+          return { content: null, size: 0, truncated: false, isBinary: false, error: 'not a file' };
+        }
+        const size = st.size;
+        const truncated = size > MAX_FILE_READ_BYTES;
+        const buf = await readFile(fileAbs);
+        // Binary heuristic: any NUL byte in the first 8 KB is a strong
+        // signal it's not text. Cheap and aligns with what `file` does.
+        const head = buf.subarray(0, Math.min(8192, buf.length));
+        const isBinary = head.includes(0);
+        if (isBinary) {
+          return { content: null, size, truncated: false, isBinary: true, error: null };
+        }
+        const slice = truncated ? buf.subarray(0, MAX_FILE_READ_BYTES) : buf;
+        return {
+          content: slice.toString('utf8'),
+          size,
+          truncated,
+          isBinary: false,
+          error: null,
+        };
+      } catch (err) {
+        return {
+          content: null,
+          size: 0,
+          truncated: false,
+          isBinary: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
 }
+
+const MAX_FILE_READ_BYTES = 2 * 1024 * 1024;
 
 /**
  * Forward a file edit from a live agent run to subscribed renderers.

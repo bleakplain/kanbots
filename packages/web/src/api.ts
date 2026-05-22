@@ -238,26 +238,52 @@ export const api = {
         updatedAt: c.edited_at ?? c.created_at,
         htmlUrl: '',
       }));
-      // Agent thread (chat history) requires runs + events — wired in
-      // phase 4 once the SSE multiplexer lands.
-      return { issue: cardToIssue(card), comments, thread: null };
+      // Synthesize a Thread out of the card's comments so the renderer's
+      // ThreadTab has something to render in cloud mode. Cloud doesn't have
+      // first-class "thread" rows yet — comments are the user-visible
+      // history. Agent text/tool events stream live via useCloudRunStream,
+      // so this populates only the user-side messages.
+      const messages = commentsResp.data.map((c, i) => ({
+        id: Number(c.id) || i + 1,
+        threadId: 1,
+        role: 'user' as const,
+        body: c.body,
+        createdAt: c.created_at,
+        agentRunId: null,
+        promotedGithubCommentId: null,
+        promotedAt: null,
+      }));
+      const thread = {
+        id: 1,
+        createdAt: messages[0]?.createdAt ?? card.created_at,
+        messages,
+        activeRun: null,
+        latestRun: null,
+      };
+      return { issue: cardToIssue(card), comments, thread };
     }
     return invoke('issues:get', { number: n });
   },
   updateIssue: async (n: number, patch: UpdateIssuePatch): Promise<Issue> => {
     if (cloudCtx !== null) {
       const bridge = getCloudBridge();
-      // Only label-driven status updates are wired in phase 1 — that's what
-      // drag-drop dispatches. Title/body edits route through the same
-      // endpoint but aren't surfaced from Board today.
-      const nextStatus = patch.labels ? statusFromLabels(patch.labels) : null;
-      if (nextStatus === null && patch.title === undefined && patch.body === undefined) {
-        refuseInCloud(`api.updateIssue (no status/title/body in patch)`);
-      }
       const body: Parameters<typeof bridge.cloudCardsUpdate>[0]['body'] = {};
-      if (nextStatus !== null) body.status = nextStatus;
+      // If labels are being patched (drag-drop), translate the status: label
+      // (kebab-cased — e.g. status:in-progress) into the cloud CardStatus.
+      // An explicit label patch with no status:* tag means "Inbox" (the
+      // null-status column on the board), which maps to cloud 'inbox'.
+      if (patch.labels !== undefined) {
+        body.status = statusFromLabels(patch.labels) ?? 'inbox';
+      }
       if (patch.title !== undefined) body.title = patch.title;
       if (patch.body !== undefined) body.body = patch.body;
+      if (
+        body.status === undefined &&
+        body.title === undefined &&
+        body.body === undefined
+      ) {
+        refuseInCloud(`api.updateIssue (no status/title/body in patch)`);
+      }
       const updated = await bridge.cloudCardsUpdate({
         orgSlug: cloudCtx.orgSlug,
         projectSlug: cloudCtx.projectSlug,
@@ -299,25 +325,23 @@ export const api = {
       // becomes the agent's prompt directly via startAgent. Persist the
       // text as a card comment so it stays visible on the cloud board,
       // then return a synthetic result so TaskCreateModal's "Dispatch"
-      // flow doesn't have to know the difference.
+      // flow doesn't have to know the difference. If the comment write
+      // fails we DO surface it — silently losing the kickoff makes
+      // the post-dispatch thread look empty for no apparent reason.
       const bridge = getCloudBridge();
-      try {
-        await bridge.cloudCommentsAdd({
-          orgSlug: cloudCtx.orgSlug,
-          projectSlug: cloudCtx.projectSlug,
-          number: n,
-          body,
-        });
-      } catch {
-        // best-effort — losing the comment shouldn't block dispatch
-      }
+      const created = await bridge.cloudCommentsAdd({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        number: n,
+        body,
+      });
       return {
         message: {
-          id: 0,
+          id: Number(created.id) || 0,
           threadId: 0,
           role: 'user',
-          body,
-          createdAt: new Date().toISOString(),
+          body: created.body,
+          createdAt: created.created_at,
         } as unknown as PostMessageResult['message'],
         thread: { id: 0 } as unknown as PostMessageResult['thread'],
       };
@@ -327,10 +351,20 @@ export const api = {
   createIssue: async (input: CreateIssueInput): Promise<Issue> => {
     if (cloudCtx !== null) {
       const bridge = getCloudBridge();
+      // TaskCreateModal encodes the target column as a status:* label
+      // (e.g. status:in-progress for "Create & dispatch", status:todo for
+      // "Spec first"). Map that onto the cloud `status` field so the card
+      // lands in the right column instead of defaulting to Inbox.
+      const status = input.labels ? statusFromLabels(input.labels) : null;
+      const createBody: Parameters<typeof bridge.cloudCardsCreate>[0]['body'] = {
+        title: input.title,
+      };
+      if (input.body !== undefined) createBody.body = input.body;
+      if (status !== null) createBody.status = status;
       const created = await bridge.cloudCardsCreate({
         orgSlug: cloudCtx.orgSlug,
         projectSlug: cloudCtx.projectSlug,
-        body: { title: input.title, ...(input.body !== undefined ? { body: input.body } : {}) },
+        body: createBody,
       });
       return cardToIssue(created);
     }
@@ -341,9 +375,12 @@ export const api = {
   suggestFeature: (
     personaPrompt: string,
     provider?: ProviderId,
+    userNotes?: string,
   ): Promise<DraftedIssue> => {
     const args: ChannelArgs<'composer:suggest'> = { personaPrompt };
     if (provider !== undefined) args.provider = provider;
+    const trimmedNotes = userNotes?.trim();
+    if (trimmedNotes) args.userNotes = trimmedNotes;
     return invoke('composer:suggest', args);
   },
   startAgent: async (
@@ -395,11 +432,57 @@ export const api = {
     if (input.provider !== undefined) args.provider = input.provider;
     return invoke('issues:start-agent', args);
   },
-  dispatchIssue: (
+  dispatchIssue: async (
     issueNumber: number,
     input: DispatchIssueInput,
-  ): Promise<DispatchIssueResult> =>
-    invoke('issues:dispatch', buildDispatchArgs(issueNumber, input)),
+  ): Promise<DispatchIssueResult> => {
+    if (cloudCtx !== null) {
+      // Cloud has no separate "dispatch" — starting an agent run IS the
+      // dispatch. Pull the card to build a kickoff prompt from its body
+      // (the local dispatcher does the same internally), then kick off
+      // the run via cloudStartAgentRun. The board's caller only uses
+      // dispatchIssue for its side effect, so the return value is
+      // synthesised to satisfy the shared shape.
+      const bridge = getCloudBridge();
+      const card = await bridge.cloudCardsGet({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        number: issueNumber,
+      });
+      const prompt =
+        (card.body && card.body.trim().length > 0
+          ? card.body
+          : card.title) ||
+        `Implement #${issueNumber}.`;
+      const { runId } = await bridge.cloudStartAgentRun({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        number: issueNumber,
+        prompt,
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.provider !== undefined ? { provider: input.provider } : {}),
+      });
+      const now = new Date().toISOString();
+      return {
+        run: {
+          id: 0,
+          cloudRunId: runId,
+          threadId: 0,
+          issueNumber,
+          status: 'starting',
+          startedAt: now,
+        } as unknown as AgentRun,
+        message: {
+          id: 0,
+          threadId: 0,
+          role: 'user',
+          body: prompt,
+          createdAt: now,
+        } as unknown as DispatchIssueResult['message'],
+      };
+    }
+    return invoke('issues:dispatch', buildDispatchArgs(issueNumber, input));
+  },
   stopAgent: (runId: number): Promise<AgentRun> => invoke('agent-runs:stop', { runId }),
   getAgentRun: (runId: number): Promise<AgentRun> => invoke('agent-runs:get', { runId }),
   getAgentRunDiff: (runId: number): Promise<DiffPayload> =>
@@ -472,12 +555,52 @@ export const api = {
     invoke('issues:approve', { number: issueNumber }),
   requestChangesIssue: (issueNumber: number): Promise<Issue> =>
     invoke('issues:request-changes', { number: issueNumber }),
-  archiveIssue: (issueNumber: number): Promise<Issue> =>
-    invoke('issues:archive', { number: issueNumber }),
-  unarchiveIssue: (issueNumber: number): Promise<Issue> =>
-    invoke('issues:unarchive', { number: issueNumber }),
-  listArchivedIssues: (): Promise<Issue[]> =>
-    invoke('issues:list-archived', undefined),
+  archiveIssue: async (issueNumber: number): Promise<Issue> => {
+    if (cloudCtx !== null) {
+      // Cloud archive is a soft-delete (sets archived_at) — it's the DELETE
+      // verb on the card resource, not a status change. Re-fetch the card
+      // after so the renderer's Issue carries the new closed/archived state.
+      const bridge = getCloudBridge();
+      await bridge.cloudCardsArchive({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        number: issueNumber,
+      });
+      const card = await bridge.cloudCardsGet({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        number: issueNumber,
+      });
+      return cardToIssue(card);
+    }
+    return invoke('issues:archive', { number: issueNumber });
+  },
+  unarchiveIssue: async (issueNumber: number): Promise<Issue> => {
+    if (cloudCtx !== null) {
+      const bridge = getCloudBridge();
+      const restored = await bridge.cloudCardsUnarchive({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        number: issueNumber,
+      });
+      return cardToIssue(restored);
+    }
+    return invoke('issues:unarchive', { number: issueNumber });
+  },
+  listArchivedIssues: async (): Promise<Issue[]> => {
+    if (cloudCtx !== null) {
+      const bridge = getCloudBridge();
+      const list = await bridge.cloudCardsList({
+        orgSlug: cloudCtx.orgSlug,
+        projectSlug: cloudCtx.projectSlug,
+        query: { limit: 200, include_archived: true },
+      });
+      // cardsToIssues drops archived cards on purpose (board never renders
+      // them); the archive view wants the opposite — only archived rows.
+      return list.data.filter((c) => c.archived_at !== null).map(cardToIssue);
+    }
+    return invoke('issues:list-archived', undefined);
+  },
   splitIssue: (
     issueNumber: number,
     subtasks: Array<{ title: string; body?: string }>,
@@ -587,7 +710,9 @@ export const api = {
   setProviderDefaults: (input: ProviderSettingsInput): Promise<ProvidersPayload> =>
     invoke('providers:set-defaults', input),
   listChats: (): Promise<ChatConversation[]> => {
-    if (cloudCtx !== null) return Promise.resolve([]);
+    // Chat history is per-device (stored at userData/device-chats.db on
+    // the desktop), so the same IPC works in both workspace and
+    // cloud-only modes.
     return invoke('chat:list', undefined);
   },
   createChat: (title?: string): Promise<ChatPayload> => {

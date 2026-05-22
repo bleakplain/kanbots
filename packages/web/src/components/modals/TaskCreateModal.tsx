@@ -12,6 +12,7 @@ import {
 import { api } from '../../api.js';
 import { CardPreview } from '../Card.js';
 import { ModelPicker } from '../forms/ModelPicker.js';
+import { dispatchIssuesRefetch } from '../../hooks/useIssues.js';
 import type { Issue } from '../../types.js';
 
 type Mode = 'spec' | 'dispatch' | 'queue';
@@ -291,6 +292,11 @@ export function TaskCreateModal({
             : { model }),
           ...(mode === 'spec' ? { appendSystemPrompt: SPEC_SYSTEM_PROMPT } : {}),
         });
+        // Cloud mode: onCreated above fired before the run row existed on
+        // the server, so the card's latest_run was still null when the
+        // parent refetched. Trigger another refresh now that startAgent
+        // has returned so the agent badge ("running"/"queued") shows up.
+        dispatchIssuesRefetch();
       }
       onClose();
     } catch (err) {

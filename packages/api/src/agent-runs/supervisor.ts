@@ -45,7 +45,12 @@ export type ContainmentMode = 'off' | 'warn' | 'pause';
 
 export interface CreateSupervisorOptions {
   store: Store;
-  repoPath: string;
+  /**
+   * Working directory for agent runs. Pass a string for a fixed workspace,
+   * or a function for the device-chat supervisor whose cwd follows whichever
+   * workspace (local or cloud-bound) is currently active.
+   */
+  repoPath: string | (() => string);
   startAgentRun?: (opts: StartAgentRunOptions) => AgentRunHandle;
   createWorktree?: (input: CreateWorktreeInput) => Promise<Worktree>;
   stampWorktreeIdentity?: (
@@ -234,7 +239,9 @@ function threadAlreadyActiveError(run: AgentRun): ThreadAlreadyActiveError {
 export async function createSupervisor(
   opts: CreateSupervisorOptions,
 ): Promise<AgentSupervisor> {
-  const { store, repoPath } = opts;
+  const { store } = opts;
+  const resolveRepoPath = (): string =>
+    typeof opts.repoPath === 'function' ? opts.repoPath() : opts.repoPath;
   const startAgent = opts.startAgentRun ?? defaultStartAgentRun;
   const makeWorktree = opts.createWorktree ?? defaultCreateWorktree;
   const stampIdentity = opts.stampWorktreeIdentity ?? defaultStampWorktreeIdentity;
@@ -754,7 +761,7 @@ export async function createSupervisor(
     const composed = composeSystemPrompt(run.id, input.appendSystemPrompt);
     persistBriefing(run.id, composed.briefing);
     const handle = startAgent({
-      cwd: repoPath,
+      cwd: resolveRepoPath(),
       prompt: input.prompt,
       appendSystemPrompt: composed.prompt,
       ...(input.model !== undefined ? { model: input.model } : {}),
@@ -788,7 +795,7 @@ export async function createSupervisor(
     const composed = composeSystemPrompt(input.runId, input.appendSystemPrompt);
     persistBriefing(input.runId, composed.briefing);
     const handle = startAgent({
-      cwd: repoPath,
+      cwd: resolveRepoPath(),
       prompt: input.prompt,
       resumeFromSessionId: existing.sessionId,
       appendSystemPrompt: composed.prompt,
@@ -822,6 +829,7 @@ export async function createSupervisor(
       issueNumber: input.issueNumber,
       runId: run.id,
     });
+    const repoPath = resolveRepoPath();
     const worktreePath = defaultWorktreePath({
       repoPath,
       issueNumber: input.issueNumber,

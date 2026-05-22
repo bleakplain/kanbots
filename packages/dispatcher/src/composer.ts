@@ -41,6 +41,8 @@ export interface SuggestFeatureInput {
   backlog: BacklogEntry[];
   personaPrompt: string;
   provider?: SuggesterProvider;
+  /** Free-form scope from the user — narrows the suggestion to a topic, area, or constraint. */
+  userNotes?: string;
   onEvent?: OnPlannerEvent;
 }
 
@@ -98,13 +100,18 @@ Rules:
 - Output strictly the JSON object matching the schema.
 `;
 
-function buildSuggestSystemPrompt(personaPrompt: string): string {
+function buildSuggestSystemPrompt(personaPrompt: string, userNotes?: string): string {
   const trimmedPersona = personaPrompt.trim();
   const persona =
     trimmedPersona.length > 0
       ? trimmedPersona
       : 'You are a product strategist for a software project.';
-  return `${persona}
+  const trimmedNotes = userNotes?.trim() ?? '';
+  const scopeBlock =
+    trimmedNotes.length > 0
+      ? `\n\nScope constraint from the user — your suggestion MUST fit these constraints. Do not propose anything that falls outside them:\n${trimmedNotes}\n`
+      : '';
+  return `${persona}${scopeBlock}
 
 Look at the repo (use Read/Glob/Grep — start with README.md, package.json, and top-level source dirs) and the issue context the user supplies. Propose ONE concrete next feature or task that fits this project's direction and the perspective described above. Aim for a useful suggestion within a few tool calls — do not exhaustively map the codebase.
 
@@ -352,8 +359,9 @@ export function createSuggester(opts: CreateSuggesterOptions): SuggestFeatureFn 
   const spawn = opts.spawn ?? nodeSpawn;
 
   return async function suggestFeature(input: SuggestFeatureInput): Promise<DraftedIssue> {
-    const systemPrompt = systemPromptOverride ?? buildSuggestSystemPrompt(input.personaPrompt);
-    const userPrompt = formatBacklogPrompt(input.backlog);
+    const systemPrompt =
+      systemPromptOverride ?? buildSuggestSystemPrompt(input.personaPrompt, input.userNotes);
+    const userPrompt = formatBacklogPrompt(input.backlog, input.userNotes);
     const provider: SuggesterProvider = input.provider ?? 'claude-code';
     if (provider === 'codex-cli') {
       const codexOpts: RunCodexOptions = {
@@ -402,9 +410,15 @@ function renderEntry(item: BacklogEntry, idx: number): string {
     : `${idx + 1}. ${ref}${item.title}`;
 }
 
-function formatBacklogPrompt(backlog: BacklogEntry[]): string {
+function formatBacklogPrompt(backlog: BacklogEntry[], userNotes?: string): string {
+  const trimmedNotes = userNotes?.trim() ?? '';
+  const notesBlock =
+    trimmedNotes.length > 0
+      ? `Additional scope from the user — narrow your suggestion to match this:\n${trimmedNotes}\n\n`
+      : '';
+
   if (backlog.length === 0) {
-    return 'The repo currently has no tracked issues. Suggest a strong first task for this project.';
+    return `${notesBlock}The repo currently has no tracked issues. Suggest a strong first task for this project.`;
   }
 
   const sections: string[] = [];
@@ -418,10 +432,10 @@ function formatBacklogPrompt(backlog: BacklogEntry[]): string {
   if (sections.length === 0) {
     // No entries had recognizable statuses — fall back to a flat list.
     const flat = backlog.map((entry, idx) => renderEntry(entry, idx)).join('\n');
-    return `Existing issues (do not duplicate any of these):\n\n${flat}\n\nSuggest one new feature or task that fits this project.`;
+    return `${notesBlock}Existing issues (do not duplicate any of these):\n\n${flat}\n\nSuggest one new feature or task that fits this project.`;
   }
 
-  return `Existing issues, grouped by status. Do not duplicate or propose anything materially similar to anything below — including items that are already in flight or have already shipped.\n\n${sections.join('\n\n')}\n\nAfter you have a candidate, verify in the workspace that the feature is genuinely missing (Grep/Glob/Read). Then suggest ONE new feature or task.`;
+  return `${notesBlock}Existing issues, grouped by status. Do not duplicate or propose anything materially similar to anything below — including items that are already in flight or have already shipped.\n\n${sections.join('\n\n')}\n\nAfter you have a candidate, verify in the workspace that the feature is genuinely missing (Grep/Glob/Read). Then suggest ONE new feature or task.`;
 }
 
 function parseJsonOrThrow(stdout: string, stderr: string): unknown {

@@ -38,6 +38,7 @@ const CARD_STATUS_TO_ENTRY_STATUS: Record<CardSummary['status'], SuggestFeatureE
 interface SuggestArgs {
   personaPrompt: string;
   provider?: 'claude-code' | 'codex-cli';
+  userNotes?: string;
 }
 
 function cardsToBacklogEntries(cards: readonly CardSummary[]): SuggestFeatureBacklogEntry[] {
@@ -89,10 +90,12 @@ export function registerCloudComposerHandlers(
       // workspace (Cloud Settings → Bind local repo updates it in place).
       const suggest = createSuggester({ cwd: ws.localRepoPath });
 
+      const trimmedNotes = args.userNotes?.trim();
       return await suggest({
         backlog,
         personaPrompt: args.personaPrompt,
         ...(args.provider !== undefined ? { provider: args.provider } : {}),
+        ...(trimmedNotes ? { userNotes: trimmedNotes } : {}),
         onEvent: opts.onSuggestEvent,
       });
     } catch (err) {

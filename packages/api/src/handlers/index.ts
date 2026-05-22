@@ -167,3 +167,36 @@ export function createProvidersHandlers(deps: ProvidersHandlerDeps): ProvidersHa
     'providers:set-defaults': (args) => providers.setDefaults(deps, args),
   };
 }
+
+export type ChatHandlers = Pick<
+  Handlers,
+  'chat:list' | 'chat:create' | 'chat:get' | 'chat:rename' | 'chat:delete' | 'chat:post-message' | 'chat:stop-run'
+>;
+
+export interface ChatHandlerDeps {
+  store: HandlerDeps['store'];
+  supervisor: HandlerDeps['supervisor'];
+  chatTools?: ChatToolRuntime;
+}
+
+/**
+ * Build the chat IPC handlers against a narrow `ChatHandlerDeps`. Registered
+ * by the desktop app at startup against a per-device chat store at
+ * `userData/device-chats.db`, so chat works in both local-workspace and
+ * cloud-only modes and history is shared across workspaces on the device.
+ */
+export function createChatHandlers(deps: ChatHandlerDeps): ChatHandlers {
+  // chat.* handlers only touch deps.store / deps.supervisor / deps.chatTools.
+  // Cast keeps the call sites identical to the full-Handlers path without
+  // forcing the caller to synthesize the unused source/autopilot/sentry deps.
+  const fullDeps = deps as unknown as HandlerDeps;
+  return {
+    'chat:list': () => chat.list(fullDeps),
+    'chat:create': (args) => chat.create(fullDeps, args),
+    'chat:get': (args) => chat.get(fullDeps, args),
+    'chat:rename': (args) => chat.rename(fullDeps, args),
+    'chat:delete': (args) => chat.deleteConversation(fullDeps, args),
+    'chat:post-message': (args) => chat.postMessage(fullDeps, args),
+    'chat:stop-run': (args) => chat.stopRun(fullDeps, args),
+  };
+}

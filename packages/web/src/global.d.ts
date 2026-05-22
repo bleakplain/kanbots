@@ -105,6 +105,16 @@ export interface KanbotsBridge {
     body: UpdateCardRequest;
     ifMatch?: string;
   }): Promise<CardSummary>;
+  cloudCardsArchive(args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+  }): Promise<void>;
+  cloudCardsUnarchive(args: {
+    orgSlug: string;
+    projectSlug: string;
+    number: number;
+  }): Promise<CardSummary>;
   cloudCommentsList(args: {
     orgSlug: string;
     projectSlug: string;
@@ -179,6 +189,13 @@ export interface KanbotsBridge {
     status: 'M' | 'A' | 'D' | 'R' | '??' | 'U' | null;
     oldText: string | null;
     newText: string | null;
+  }>;
+  workspaceFileRead(args: { filePath: string }): Promise<{
+    content: string | null;
+    size: number;
+    truncated: boolean;
+    isBinary: boolean;
+    error: string | null;
   }>;
   cloudRunsGet(args: {
     orgSlug: string;

@@ -211,13 +211,10 @@ function TreeRow({ entry, depth, state, touched, rootPath, dispatch, onOpenChang
             dispatch({ kind: 'toggle', path: entry.path });
             return;
           }
-          // Files: only act if the file has worktree changes — direct
-          // editing is out of scope for now. Untouched files stay
-          // inert so a stray click on a file row doesn't surprise the
-          // user with a modal of nothing.
-          if (touchedForThis !== undefined) {
-            onOpenChange(entry.path, touchedForThis.worktrees);
-          }
+          // Files: always open the viewer. Touched files default to
+          // the diff tab; untouched files open in read-only content
+          // mode. Worktree list is empty when there are no changes.
+          onOpenChange(entry.path, touchedForThis?.worktrees ?? []);
         }}
         title={
           touchedForThis
@@ -278,9 +275,14 @@ function TreeRow({ entry, depth, state, touched, rootPath, dispatch, onOpenChang
 export interface WorkspaceTreeProps {
   /** Friendly name shown above the tree (e.g. project name + branch). */
   header?: { name: string; subtitle?: string };
+  /**
+   * Optional callback so the file viewer can navigate to a freshly-
+   * created task when the user starts a new agent run on a file.
+   */
+  onSelectIssue?: (issueNumber: number) => void;
 }
 
-export function WorkspaceTree({ header }: WorkspaceTreeProps) {
+export function WorkspaceTree({ header, onSelectIssue }: WorkspaceTreeProps) {
   const [rootPath, setRootPath] = useState<string | null>(null);
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus>({
     files: {},
@@ -460,6 +462,7 @@ export function WorkspaceTree({ header }: WorkspaceTreeProps) {
           filePath={openChange.filePath}
           worktrees={openChange.worktrees}
           onClose={() => setOpenChange(null)}
+          {...(onSelectIssue !== undefined ? { onSelectIssue } : {})}
         />
       ) : null}
     </div>

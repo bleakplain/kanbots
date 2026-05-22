@@ -97,6 +97,10 @@ const api: KanbotsBridge = {
     body: UpdateCardRequest;
     ifMatch?: string;
   }) => ipcRenderer.invoke('kanbots:cloud:cards-update', args) as Promise<CardSummary>,
+  cloudCardsArchive: (args: { orgSlug: string; projectSlug: string; number: number }) =>
+    ipcRenderer.invoke('kanbots:cloud:cards-archive', args) as Promise<void>,
+  cloudCardsUnarchive: (args: { orgSlug: string; projectSlug: string; number: number }) =>
+    ipcRenderer.invoke('kanbots:cloud:cards-unarchive', args) as Promise<CardSummary>,
   cloudCommentsList: (args: { orgSlug: string; projectSlug: string; number: number }) =>
     ipcRenderer.invoke('kanbots:cloud:comments-list', args) as Promise<CommentListResponse>,
   cloudCommentsAdd: (args: {
@@ -191,6 +195,14 @@ const api: KanbotsBridge = {
       status: 'M' | 'A' | 'D' | 'R' | '??' | 'U' | null;
       oldText: string | null;
       newText: string | null;
+    }>,
+  workspaceFileRead: (args: { filePath: string }) =>
+    ipcRenderer.invoke('kanbots:workspace:file-read', args) as Promise<{
+      content: string | null;
+      size: number;
+      truncated: boolean;
+      isBinary: boolean;
+      error: string | null;
     }>,
   cloudRunsGet: (args: { orgSlug: string; projectSlug: string; runId: string }) =>
     ipcRenderer.invoke('kanbots:cloud:runs-get', args) as Promise<AgentRunSummary>,

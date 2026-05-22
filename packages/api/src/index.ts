@@ -46,8 +46,11 @@ export {
 } from './curator/index.js';
 
 export {
+  createChatHandlers,
   createHandlers,
   createProvidersHandlers,
+  type ChatHandlerDeps,
+  type ChatHandlers,
   type ChatToolRuntime,
   type CreateHandlersOptions,
   type HandlerDeps,

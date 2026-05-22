@@ -959,35 +959,56 @@ function registerDeviceChatIpc(): void {
   }
 }
 
-// Cloud-only launch: channels callable without a valid cloud session.
-// Everything else is gated by the wrapper installed in registerIpc().
-//   - bootstrap surfaces the cloudAuthed flag so the renderer can route to sign-in
-//   - cloud-* drive the sign-in flow itself
-//   - window-* keeps frame chrome usable on the sign-in screen
-//   - claude/codex auth-status are read-only probes
-const AUTH_FREE_CHANNELS: ReadonlySet<string> = new Set([
-  'kanbots:bootstrap',
-  'kanbots:cloud-auth-status',
-  'kanbots:cloud-login-start',
-  'kanbots:cloud-login-poll',
-  'kanbots:cloud-login-cancel',
-  'kanbots:cloud-logout',
-  'kanbots:cloud-prompt-dismiss',
-  'kanbots:window-minimize',
-  'kanbots:window-toggle-maximize',
-  'kanbots:window-close',
-  'kanbots:claude-auth-status',
-  'kanbots:codex-auth-status',
+// Local-first launch: cloud sign-in is OPTIONAL. By default every IPC
+// channel works without a cloud session. Only operations that actually
+// hit the Kanbots Cloud backend (or open a cloud-only workspace) need a
+// valid session — those opt in via CLOUD_REQUIRED_CHANNELS below.
+//
+// The sign-in flow itself, status probes, and prompt-dismiss must stay
+// reachable without auth (a not-signed-in user has to be able to sign
+// in), so they are intentionally NOT listed here.
+const CLOUD_REQUIRED_CHANNELS: ReadonlySet<string> = new Set([
+  // Cloud REST operations — every one of these makes an authenticated
+  // request to app.kanbots.dev, so they cannot run without a session.
+  'kanbots:cloud:users-me',
+  'kanbots:cloud:orgs-list',
+  'kanbots:cloud:orgs-create',
+  'kanbots:cloud:projects-list',
+  'kanbots:cloud:projects-create',
+  'kanbots:cloud:cards-list',
+  'kanbots:cloud:cards-create',
+  'kanbots:cloud:cards-get',
+  'kanbots:cloud:cards-update',
+  'kanbots:cloud:cards-archive',
+  'kanbots:cloud:cards-unarchive',
+  'kanbots:cloud:comments-list',
+  'kanbots:cloud:comments-add',
+  'kanbots:cloud:attachments-list',
+  'kanbots:cloud:runs-list-for-card',
+  'kanbots:cloud:runs-create',
+  'kanbots:cloud:runs-get',
+  'kanbots:cloud:start-agent-run',
+  'kanbots:cloud:runs-stream-start',
+  'kanbots:cloud:runs-stream-stop',
+  'kanbots:cloud:runs-stop',
+  'kanbots:cloud:cost-today',
+  'kanbots:cloud:project-binding-get',
+  'kanbots:cloud:project-binding-set',
+  'kanbots:cloud:project-binding-clear',
+  // Cloud workspace lifecycle — opening or listing remote workspaces.
+  'kanbots:open-cloud-workspace',
+  'kanbots:close-cloud-workspace',
+  'kanbots:recent-cloud-workspaces',
 ]);
 
 function registerIpc(): void {
-  // Wrap ipcMain.handle so that any channel not in AUTH_FREE_CHANNELS rejects
-  // when the user is not signed in to Kanbots Cloud. Done at registration
-  // time so every direct ipcMain.handle(...) call below picks up the gate
-  // without a touch.
+  // Wrap ipcMain.handle so that channels in CLOUD_REQUIRED_CHANNELS
+  // reject when there is no active cloud session. Local workspace and
+  // app-level channels (the default) are pass-through so the app boots
+  // and operates fully offline.
   const origHandle = ipcMain.handle.bind(ipcMain);
   ipcMain.handle = ((channel: string, listener: Parameters<typeof ipcMain.handle>[1]) => {
-    if (AUTH_FREE_CHANNELS.has(channel)) {
+    if (!CLOUD_REQUIRED_CHANNELS.has(channel)) {
       origHandle(channel, listener);
       return;
     }

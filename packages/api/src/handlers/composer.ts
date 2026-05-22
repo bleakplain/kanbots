@@ -26,12 +26,14 @@ const suggestSchema = z
   .object({
     personaPrompt: z.string().min(1).max(8_000),
     provider: z.enum(['claude-code', 'codex-cli']).optional(),
+    userNotes: z.string().max(4_000).optional(),
   })
   .strict();
 
 export interface SuggestArgs {
   personaPrompt: string;
   provider?: 'claude-code' | 'codex-cli';
+  userNotes?: string;
 }
 
 export async function suggest(
@@ -41,10 +43,12 @@ export async function suggest(
   const parsed = parseArgs(suggestSchema, args);
   const issues = await deps.source.listIssues({ state: 'all' });
   const backlog = collectSuggestionEntries(issues);
+  const trimmedNotes = parsed.userNotes?.trim();
   return deps.suggestIssue({
     backlog,
     personaPrompt: parsed.personaPrompt,
     ...(parsed.provider !== undefined ? { provider: parsed.provider } : {}),
+    ...(trimmedNotes ? { userNotes: trimmedNotes } : {}),
     ...(deps.onSuggestEvent !== undefined ? { onEvent: deps.onSuggestEvent } : {}),
   });
 }

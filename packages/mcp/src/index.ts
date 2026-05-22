@@ -7,6 +7,14 @@
 
 export const PACKAGE_NAME = '@kanbots/mcp';
 
+export {
+  CLOUD_SIGNIN_HINT,
+  CloudAuthRequiredError,
+  readCloudSession,
+  requireCloudSession,
+} from './auth.js';
+export type { CloudSession } from './auth.js';
+
 export interface ToolDef {
   name: string;
   description: string;

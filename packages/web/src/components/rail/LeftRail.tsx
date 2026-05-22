@@ -257,6 +257,7 @@ export function LeftRail({
       >
         <WorkspaceTree
           header={{ name: headerName, ...(headerSubtitle ? { subtitle: headerSubtitle } : {}) }}
+          onSelectIssue={onSelectIssue}
         />
       </CollapsibleSection>
 

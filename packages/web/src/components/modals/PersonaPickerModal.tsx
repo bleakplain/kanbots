@@ -6,13 +6,13 @@ import type { ProviderId } from '../../types.js';
 
 export interface PersonaPickerModalProps {
   onClose: () => void;
-  onPick: (persona: Persona, provider?: ProviderId) => void;
+  onPick: (persona: Persona, provider?: ProviderId, userNotes?: string) => void;
   /** If true, the user can pick multiple personas before confirming. */
   multiSelect?: boolean;
   /** Confirm button label override in multi-select mode. */
   multiSelectConfirmLabel?: string;
   /** Called with the selected personas when the user confirms in multi-select mode. */
-  onConfirm?: (personas: Persona[], provider?: ProviderId) => void;
+  onConfirm?: (personas: Persona[], provider?: ProviderId, userNotes?: string) => void;
   /** Headline shown next to the kanbots crumb. */
   title?: string;
   /** Subhead shown above the persona grid. */
@@ -23,6 +23,8 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
   'claude-code': 'Claude',
   'codex-cli': 'Codex',
 };
+
+const ALL_PROVIDERS: readonly ProviderId[] = ['claude-code', 'codex-cli'];
 
 export function PersonaPickerModal({
   onClose,
@@ -41,8 +43,11 @@ export function PersonaPickerModal({
   const [draftPrompt, setDraftPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [availableProviders, setAvailableProviders] = useState<ProviderId[]>([]);
-  const [provider, setProvider] = useState<ProviderId | null>(null);
+  const [configuredProviders, setConfiguredProviders] = useState<Set<ProviderId>>(
+    () => new Set(),
+  );
+  const [provider, setProvider] = useState<ProviderId>('claude-code');
+  const [userNotes, setUserNotes] = useState('');
 
   const selectedPersonas = useMemo(
     () => personas.filter((p) => selectedIds.has(p.id)),
@@ -58,8 +63,8 @@ export function PersonaPickerModal({
         const configured = payload.providers
           .filter((p) => p.enabled && p.hasKey)
           .map((p) => p.id);
-        setAvailableProviders(configured);
-        if (configured.length >= 2) {
+        setConfiguredProviders(new Set(configured));
+        if (configured.length > 0) {
           const preferred =
             payload.settings.defaultProvider &&
             configured.includes(payload.settings.defaultProvider)
@@ -69,13 +74,18 @@ export function PersonaPickerModal({
         }
       } catch {
         // best-effort: if providers fail to load, fall back to the default
-        // (no toggle, server picks claude).
+        // (claude-code). The IPC call will surface a clear error if it
+        // turns out nothing is configured.
       }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const noProvidersConfigured = configuredProviders.size === 0;
+  const trimmedNotes = userNotes.trim();
+  const notesArg = trimmedNotes.length > 0 ? trimmedNotes : undefined;
 
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent): void {
@@ -126,13 +136,13 @@ export function PersonaPickerModal({
         return next;
       });
     } else {
-      onPick(created, provider ?? undefined);
+      onPick(created, provider, notesArg);
     }
   }
 
   function handleCardClick(persona: Persona): void {
     if (!multiSelect) {
-      onPick(persona, provider ?? undefined);
+      onPick(persona, provider, notesArg);
       return;
     }
     setSelectedIds((prev) => {
@@ -149,10 +159,10 @@ export function PersonaPickerModal({
   function handleConfirm(): void {
     if (!multiSelect || selectedPersonas.length === 0) return;
     if (onConfirm) {
-      onConfirm(selectedPersonas, provider ?? undefined);
+      onConfirm(selectedPersonas, provider, notesArg);
     } else {
       // Backwards-compat fallback: emit each pick individually.
-      for (const p of selectedPersonas) onPick(p, provider ?? undefined);
+      for (const p of selectedPersonas) onPick(p, provider, notesArg);
     }
   }
 
@@ -190,34 +200,67 @@ export function PersonaPickerModal({
                 'The selected agent will look at your repo and the backlog through the lens you pick. Feature suggestions shift accordingly.'}
             </div>
 
-            {availableProviders.length >= 2 && provider ? (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  marginBottom: 16,
-                  fontSize: 12.5,
-                }}
-              >
-                <span style={{ color: 'var(--ink-2)' }}>Run with:</span>
-                <div role="radiogroup" aria-label="Suggestion agent" style={{ display: 'flex', gap: 6 }}>
-                  {availableProviders.map((id) => (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginBottom: 12,
+                fontSize: 12.5,
+                flexWrap: 'wrap',
+              }}
+            >
+              <span style={{ color: 'var(--ink-2)' }}>Run with:</span>
+              <div role="radiogroup" aria-label="Suggestion agent" style={{ display: 'flex', gap: 6 }}>
+                {ALL_PROVIDERS.map((id) => {
+                  const isConfigured = configuredProviders.has(id);
+                  const isSelected = provider === id;
+                  return (
                     <button
                       key={id}
                       type="button"
                       role="radio"
-                      aria-checked={provider === id}
-                      className={`kb-btn ${provider === id ? 'primary' : 'ghost'}`}
-                      onClick={() => setProvider(id)}
-                      style={{ padding: '4px 10px', fontSize: 12 }}
+                      aria-checked={isSelected}
+                      disabled={!isConfigured}
+                      className={`kb-btn ${isSelected ? 'primary' : 'ghost'}`}
+                      onClick={() => {
+                        if (isConfigured) setProvider(id);
+                      }}
+                      title={isConfigured ? PROVIDER_LABELS[id] : `${PROVIDER_LABELS[id]} — not configured. Add an API key in Settings.`}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: 12,
+                        opacity: isConfigured ? 1 : 0.5,
+                        cursor: isConfigured ? 'pointer' : 'not-allowed',
+                      }}
                     >
                       {PROVIDER_LABELS[id]}
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
-            ) : null}
+              {noProvidersConfigured ? (
+                <span style={{ color: 'var(--ink-3)', fontSize: 11.5 }}>
+                  No providers configured — set one up in Settings.
+                </span>
+              ) : null}
+            </div>
+
+            <div className="kb-field" style={{ marginBottom: 16 }}>
+              <label className="kb-field-label" htmlFor="kb-suggest-notes">
+                Notes (optional) — narrow the suggestion to a topic, area, or constraint
+              </label>
+              <textarea
+                id="kb-suggest-notes"
+                className="kb-textarea"
+                placeholder="e.g. focus on the onboarding flow, only API/server-side changes, must be doable in a single PR…"
+                value={userNotes}
+                onChange={(e) => setUserNotes(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                style={{ fontSize: 12.5 }}
+              />
+            </div>
 
             <div className="kb-persona-grid">
               {personas.map((p) => {

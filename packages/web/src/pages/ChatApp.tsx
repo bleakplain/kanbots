@@ -83,59 +83,18 @@ export function ChatApp() {
     setLocationHash(conversationId);
   }, [conversationId]);
 
+  // The chat window uses native OS chrome (see createChatWindow in
+  // desktop/main.ts), so we skip the custom kb-titlebar and the
+  // kb-stage/kb-window shadow wrapper — the OS already draws the frame.
   return (
-    <div className="kb-stage" data-host="desktop">
-      <div className="kb-window kb-app kb-chat-window">
-        <ChatTitleBar />
-        <div className="kb-chat-shell">
-          {conversationId !== null ? (
-            <ChatRoom conversationId={conversationId} />
-          ) : (
-            <ChatBootstrap loading={bootstrapping} error={error} />
-          )}
-        </div>
+    <div className="kb-chat-window kb-chat-window-native">
+      <div className="kb-chat-shell">
+        {conversationId !== null ? (
+          <ChatRoom conversationId={conversationId} />
+        ) : (
+          <ChatBootstrap loading={bootstrapping} error={error} />
+        )}
       </div>
-    </div>
-  );
-}
-
-function ChatTitleBar() {
-  const bridge = typeof window !== 'undefined' ? window.kanbots : undefined;
-  return (
-    <div className="kb-titlebar">
-      <div className="kb-tlights">
-        <button
-          type="button"
-          className="kb-tlight r"
-          aria-label="Close"
-          title="Close"
-          disabled={!bridge}
-          onClick={() => bridge?.closeWindow()}
-        />
-        <button
-          type="button"
-          className="kb-tlight y"
-          aria-label="Minimize"
-          title="Minimize"
-          disabled={!bridge}
-          onClick={() => bridge?.minimizeWindow()}
-        />
-        <button
-          type="button"
-          className="kb-tlight g"
-          aria-label="Maximize"
-          title="Maximize"
-          disabled={!bridge}
-          onClick={() => bridge?.toggleMaximizeWindow()}
-        />
-      </div>
-      <div className="kb-tbar-title">
-        <span className="kb-tdot" />
-        <span>kanbots chat</span>
-        <span className="kb-sep">/</span>
-        <span className="kb-folder">general-purpose agent</span>
-      </div>
-      <div className="kb-tbar-actions" />
     </div>
   );
 }

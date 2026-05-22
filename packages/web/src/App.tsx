@@ -12,9 +12,9 @@ import { Board } from './pages/Board.js';
 // former CloudBoard/CloudColumn/CloudCardModal files have been deleted.
 import { CloudWorkspacePicker } from './pages/CloudWorkspacePicker.js';
 import { ProvidersOverlay } from './pages/ProvidersOverlay.js';
-// Cloud-only launch: local WorkspacePicker is no longer reachable from App
-// routing. Kept in the codebase for potential future restore.
-// import { WorkspacePicker } from './pages/WorkspacePicker.js';
+// Local-first launch: the local workspace picker is reachable again.
+// Users can open a folder without signing in to Kanbots Cloud.
+import { WorkspacePicker } from './pages/WorkspacePicker.js';
 import { api, setCloudCtx } from './api.js';
 import { Window } from './components/shell/Window.js';
 import { Shell } from './components/shell/Shell.js';
@@ -304,6 +304,18 @@ export function App({
 }: AppProps) {
   const [providersTick, setProvidersTick] = useState(0);
   const [cloudAuthed, setCloudAuthed] = useState<boolean>(initialCloudAuthed);
+  const [cloudPromptDismissed, setCloudPromptDismissed] = useState<boolean>(
+    initialCloudPromptDismissed,
+  );
+  // When the user dismisses the cloud prompt or picks "open a folder" from
+  // the cloud picker, we route to the local WorkspacePicker. Tracked in
+  // local state so the choice persists for the session.
+  const [pickerMode, setPickerMode] = useState<'cloud' | 'local'>(
+    // First-run choice: signed in or skipped cloud previously → respect
+    // their prior preference (cloud picker by default for signed-in
+    // users; local picker for users who dismissed without signing in).
+    initialCloudAuthed ? 'cloud' : 'local',
+  );
 
   // Cloud-only launch — phase 1: install the cloud ctx on api.ts before any
   // hook below fires its initial fetch. Setting module state during render
@@ -325,35 +337,43 @@ export function App({
     () => api.getProviders(),
   );
 
-  // Cloud-only launch: the sign-in gate is mandatory. There is no longer a
-  // "Continue local-only" exit, so the prompt sits in front of every other
-  // route until cloudAuthed becomes true. The cloudPromptDismissed flag from
-  // bootstrap is intentionally ignored (legacy installs may carry a
-  // dismissal from the old optional gate).
-  if (hasBridge && !cloudAuthed) {
+  // Local-first launch: the cloud sign-in prompt is OPTIONAL. It shows on
+  // the very first run (no dismissal recorded yet, no active session) and
+  // sits as a one-time prompt. The user can sign in OR pick "Continue
+  // locally" to dismiss; either way it never blocks the app again.
+  if (hasBridge && !cloudAuthed && !cloudPromptDismissed) {
     return (
       <CloudFirstRunPrompt
-        onSignedIn={() => setCloudAuthed(true)}
+        onSignedIn={() => {
+          setCloudAuthed(true);
+          setCloudPromptDismissed(true);
+          setPickerMode('cloud');
+        }}
+        onDismissed={() => {
+          setCloudPromptDismissed(true);
+          setPickerMode('local');
+        }}
       />
     );
   }
 
-  // Cloud-only launch — phase 1 unification: cloud workspace also renders
-  // through ShellHost+Board (same chrome, hooks, modals as local), fed by
-  // the mode-aware api.ts that the `setCloudCtx` call above just primed.
-  // Drag-drop, card creation, and the workspace picker work through the
-  // cloud client; cost meters / autopilot / live run streams are stubbed
-  // until phases 2-4.
-
-  // Cloud-only launch: no workspace selected → always show the cloud picker.
-  // The local WorkspacePicker is no longer reachable from the UI; the
-  // `onPickLocal` callback is wired to a no-op so existing callers keep
-  // compiling.
+  // No workspace open → show a picker. Signed-in users land on the cloud
+  // picker (with an "Open a folder" escape hatch into the local picker);
+  // local-only users land on the local picker (with a "Sign in" option
+  // available through the left-rail/cloud-settings modal at all times).
   if (hasBridge && workspace === null && cloudWorkspace === null) {
+    if (pickerMode === 'local' || !cloudAuthed) {
+      return (
+        <WorkspacePicker
+          initialRecents={initialRecents}
+          onOpened={() => window.location.reload()}
+        />
+      );
+    }
     return (
       <CloudWorkspacePicker
         initialRecents={initialCloudRecents}
-        onPickLocal={() => undefined}
+        onPickLocal={() => setPickerMode('local')}
         onOpened={() => window.location.reload()}
       />
     );
