@@ -12,40 +12,6 @@
 
 ![Kanbots board overview](docs/assets/board-overview.png)
 
-## What makes it different
-
-- **Parallel agents on the board.** Dispatch on as many cards as you
-  want; each agent runs in its own git worktree on a `kanbots/issue-N`
-  branch. The board updates live as runs progress, decisions surface,
-  costs accrue. Drag a card, start an agent — that's the whole loop.
-- **Autopilot mode.** Hand kanbots an issue and a budget; it iterates
-  in cycles until the work converges or the cost cap hits. Two flavours:
-  **feature-dev** (multi-persona round-robin) and **QA** (run
-  typecheck/tests/lint/e2e, fix what fails, repeat).
-- **Self-evolving feature dev.** Plug in personas — product author,
-  engineer, reviewer, tester — and a parallelism count (up to 4). The
-  orchestrator round-robins through personas, runs slots concurrently,
-  splits parent issues into subtasks, and evolves the backlog as
-  agents discover work. Personas spawn personas.
-- **Pick your CLI.** Claude Code or Codex. Same board, same worktrees,
-  same decision UI — kanbots speaks both stream formats behind a
-  single `AgentCliAdapter` interface.
-- **Local-first, zero servers.** Everything lives in `.kanbots/` next
-  to your repo: SQLite database, configs, worktrees. No cloud account,
-  no telemetry, no HTTP server. This is the open-source desktop edition.
-
-![Autopilot — Feature Dev modal](docs/assets/autopilot-feature-dev.png)
-
-*Autopilot — Feature Dev: pick personas, parallelism (up to 4),
-effort, and model. Slots round-robin through personas; agents split
-the issue into subtasks as they go.*
-
-## Working on a team?
-
-**[KanBots Cloud](https://kanbots.dev)** adds real-time collaboration,
-multi-user boards, and managed agent infrastructure — same UI, paid
-tier. The OSS desktop stays free forever.
-
 ## Highlights
 
 - **Kanban with five columns** (Backlog → Done) plus an Inbox for
