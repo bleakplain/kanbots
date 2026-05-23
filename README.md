@@ -68,44 +68,54 @@ tier. The OSS desktop stays free forever.
   Context Protocol so Cursor, Claude Desktop, or anything MCP-aware
   can drive it.
 
-## Requirements
+## Getting started
 
-- **Node 20+** and **pnpm 10+**
-- **`claude`** on `PATH` (Claude Code CLI) — sign in with `claude /login`
-- **`codex`** on `PATH` if you want Codex agents
-- **`git`**
-- Optional: **`gh`** CLI for GitHub mode auth
+### Install a packaged build
 
-Packaged builds for **Linux**, **macOS** (Apple Silicon + Intel), and
-**Windows** (x64) are published to the
-[GitHub releases page](https://github.com/leodavinci1/kanbots/releases).
-macOS and Windows builds are currently unsigned. On macOS the easiest
-way to install is the one-line script (downloads the .dmg and clears
-the Gatekeeper quarantine flag automatically):
+Latest binaries: [releases page](https://github.com/leodavinci1/kanbots/releases).
+
+**macOS** — builds are currently unsigned, so Gatekeeper rejects the
+.dmg on first launch with *"kanbots is damaged and can't be opened"*.
+Use the one-line install script — it grabs the right .dmg for your
+architecture, clears the quarantine flag, and copies the app into
+`/Applications`:
 
 ```sh
 curl -fsSL https://kanbots.dev/install-mac.sh | bash
 ```
 
-For manual install / Windows SmartScreen bypass, see
-[docs/getting-started.md](docs/getting-started.md#unsigned-builds).
-Releasing infrastructure lives in [docs/releasing.md](docs/releasing.md).
+If you'd rather install by hand: download the .dmg, drag the app
+into `/Applications`, then run
+`xattr -d com.apple.quarantine /Applications/kanbots.app` once.
 
-## Install & run
+**Linux** — `.AppImage` (`chmod +x` and run) or `.tar.xz`.
+
+**Windows** — `.exe` installer. SmartScreen warns on first launch —
+*More info → Run anyway*. Like macOS, the build is unsigned.
+
+### Or run from source
 
 ```sh
+git clone https://github.com/leodavinci1/kanbots.git
+cd kanbots
 pnpm install
 pnpm desktop          # build everything, open Electron
 # or, for hot-reload:
 pnpm desktop:dev      # Vite + tsup --watch + electronmon
 ```
 
-A workspace picker opens. Pick any folder that contains a git
-repository. On first open, kanbots creates `.kanbots/` (db + config +
-worktrees) and drops you on the board.
+You'll need **Node 20+**, **pnpm 10+**, **git**, and `claude` (the
+Claude Code CLI) on `PATH`. Sign in once with `claude /login`. Add
+`codex` on PATH if you want Codex agents, and `gh` + `gh auth login`
+if you'll be driving GitHub issues.
 
-See [docs/getting-started.md](docs/getting-started.md) for the full
-walkthrough.
+### First run
+
+A workspace picker opens. Pick any folder that contains a git
+repository — kanbots creates `.kanbots/` (db + config + worktrees)
+inside it and drops you on the board.
+
+Full walkthrough: [docs/getting-started.md](docs/getting-started.md).
 
 ## The `.kanbots/` directory
 
