@@ -26,6 +26,7 @@ import {
   type ToolBridge,
 } from '@kanbots/api';
 import { GitHubClient, resolveGitHubToken, type IssueSource } from '@kanbots/core';
+import { PlaneSync } from './plane-sync.js';
 import {
   createComposer,
   createPrDescriptionDrafter,
@@ -377,7 +378,7 @@ function broadcastIssueChange(): void {
   sender.send('issues:changed', {});
 }
 
-function wrapNotifyingSource(source: IssueSource): IssueSource {
+function wrapNotifyingSource(source: IssueSource, planeSync?: PlaneSync): IssueSource {
   const wrapped: IssueSource = {
     listIssues: (opts) => source.listIssues(opts),
     getIssue: (n) => source.getIssue(n),
@@ -386,6 +387,12 @@ function wrapNotifyingSource(source: IssueSource): IssueSource {
     createIssue: async (input) => {
       const r = await source.createIssue(input);
       broadcastIssueChange();
+      // Plane Sync: 上行创建
+      if (planeSync) {
+        planeSync.onIssueCreated(r).catch((err) => {
+          console.error('[Plane Sync] Error syncing created issue:', err);
+        });
+      }
       return r;
     },
     updateIssue: async (n, patch) => {
@@ -464,6 +471,7 @@ async function closeActiveWorkspace(): Promise<void> {
   } catch {
     // ignore
   }
+  activeWorkspace.planeSync?.stop();
   try {
     await activeWorkspace.autopilot.stopAllForShutdown();
   } catch {
@@ -520,8 +528,13 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
   const dbWatcher = watchDbFile(kdir.dbPath, broadcastIssueChange);
 
   let source: IssueSource;
+  let planeSync: PlaneSync | undefined;
+
   try {
-    source = wrapNotifyingSource(await buildSource(config, store));
+    const rawSource = await buildSource(config, store);
+    source = wrapNotifyingSource(rawSource);
+    // 初始化 Plane Sync（在包装后，可以正确触发同步）
+    planeSync = new PlaneSync(store, source);
   } catch (err) {
     dbWatcher.stop();
     store.close();
@@ -584,11 +597,12 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
       }
     },
     onRunComplete: async (run) => {
-      // Two best-effort tasks fan out from a successful run:
+      // Three best-effort tasks fan out from a successful run:
       //   1. Mirror the run's outcome onto the issue's labels (status:review,
       //      agent:idle).
       //   2. Dispatch the memory-ledger curator so this run feeds future ones.
-      // Both run in parallel; failures of either are logged-and-swallowed.
+      //   3. Sync to Plane if configured.
+      // All run in parallel; failures of any are logged-and-swallowed.
       const labelTask = (async () => {
         const thread = store.threads.findById(run.threadId);
         if (!thread) return;
@@ -605,7 +619,10 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
       const curatorTask = curator(run).catch(() => {
         // curator failures must not crash the supervisor hook
       });
-      await Promise.allSettled([labelTask, curatorTask]);
+      const planeTask = planeSync?.onAgentComplete(run, store).catch(() => {
+        // plane sync failures must not crash the supervisor hook
+      }) ?? Promise.resolve();
+      await Promise.allSettled([labelTask, curatorTask, planeTask]);
     },
   });
   const supervisor = wrapNotifyingSupervisor(rawSupervisor);
@@ -825,6 +842,7 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
     draftPrDescription,
     analyzeSentryError,
     sentryPoller,
+    planeSync,
     subscriptions,
     unregisterHandlers,
     ownerId,
@@ -836,6 +854,13 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
   };
 
   sentryPoller.start();
+
+  // 启动 Plane Sync
+  if (planeSync) {
+    planeSync.start().catch((err) => {
+      console.error('[Plane Sync] Failed to start:', err);
+    });
+  }
 
   await ensureGitignoreEntry(gitRoot, '.kanbots/').catch(() => {
     // best-effort

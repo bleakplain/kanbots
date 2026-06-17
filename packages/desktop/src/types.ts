@@ -24,6 +24,7 @@ import type {
 export interface ActiveWorkspaceInfo {
   repoPath: string;
   config: WorkspaceConfig;
+  planeSync?: import('./plane-sync.js').PlaneSync;
 }
 
 /**
