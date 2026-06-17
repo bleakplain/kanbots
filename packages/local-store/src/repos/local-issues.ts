@@ -3,6 +3,7 @@ import type { Db } from '../db.js';
 
 interface IssueRow {
   number: number;
+  id: string;
   title: string;
   body: string;
   state: string;
@@ -12,6 +13,8 @@ interface IssueRow {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  plane_workitem_id: string | null;
+  plane_synced_at: string | null;
 }
 
 interface CommentRow {
@@ -111,21 +114,43 @@ export class LocalIssuesRepo {
     return row ? rowToIssue(row) : null;
   }
 
+  findById(id: string): Issue | null {
+    const row = this.db.prepare('SELECT * FROM local_issues WHERE id = ?').get(id) as
+      | IssueRow
+      | undefined;
+    return row ? rowToIssue(row) : null;
+  }
+
+  findByPlaneWorkItemId(planeWorkItemId: string): Issue | null {
+    const row = this.db.prepare('SELECT * FROM local_issues WHERE plane_workitem_id = ? LIMIT 1').get(planeWorkItemId) as
+      | IssueRow
+      | undefined;
+    return row ? rowToIssue(row) : null;
+  }
+
   create(input: CreateLocalIssueInput): Issue {
     const now = new Date().toISOString();
+    const userId = input.authorLogin;
+    const uuid = Array.from({ length: 16 }, () =>
+      Math.floor(Math.random() * 256).toString(16).padStart(2, '0')
+    ).join('');
+    const globalId = `${userId}-${uuid}`;
+
     const tx = this.db.transaction((args: CreateLocalIssueInput): Issue => {
       const maxRow = this.db
         .prepare('SELECT COALESCE(MAX(number), 0) AS max FROM local_issues')
         .get() as { max: number };
       const nextNumber = maxRow.max + 1;
+
       this.db
         .prepare(
           `INSERT INTO local_issues
-            (number, title, body, state, labels, assignees, author_login, created_at, updated_at)
-           VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
+            (number, id, title, body, state, labels, assignees, author_login, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
         )
         .run(
           nextNumber,
+          globalId,
           args.title,
           args.body ?? '',
           JSON.stringify(args.labels ?? []),
@@ -134,10 +159,12 @@ export class LocalIssuesRepo {
           now,
           now,
         );
+
       const issue = this.findByNumber(nextNumber);
       if (!issue) throw new Error(`Failed to insert local issue ${nextNumber}`);
       return issue;
     });
+
     return tx(input);
   }
 
@@ -179,6 +206,7 @@ export class LocalIssuesRepo {
     if (result.changes === 0) {
       throw new LocalIssueNotFoundError(number);
     }
+
     const updated = this.findByNumber(number);
     if (!updated) throw new LocalIssueNotFoundError(number);
     return updated;
@@ -194,6 +222,7 @@ export class LocalIssuesRepo {
   addComment(input: CreateLocalCommentInput): Comment {
     const issue = this.findByNumber(input.issueNumber);
     if (!issue) throw new LocalIssueNotFoundError(input.issueNumber);
+
     const now = new Date().toISOString();
     const result = this.db
       .prepare(
@@ -214,5 +243,19 @@ export class LocalIssuesRepo {
       updatedAt: now,
       htmlUrl: '',
     };
+  }
+
+  setPlaneWorkItemId(number: number, planeWorkItemId: string): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare('UPDATE local_issues SET plane_workitem_id = ?, plane_synced_at = ? WHERE number = ?')
+      .run(planeWorkItemId, now, number);
+  }
+
+  getPlaneWorkItemId(number: number): string | null {
+    const row = this.db.prepare('SELECT plane_workitem_id FROM local_issues WHERE number = ?').get(number) as
+      | { plane_workitem_id: string | null }
+      | undefined;
+    return row?.plane_workitem_id ?? null;
   }
 }

@@ -1,7 +1,6 @@
 import type { Store } from '@kanbots/local-store';
 import type { IssueSource, Issue } from '@kanbots/core';
 import { PlaneClient, type PlaneWorkItem } from './plane-client.js';
-import type { Database } from 'better-sqlite3';
 
 interface PlaneSyncConfig {
   api_url: string;
@@ -11,19 +10,6 @@ interface PlaneSyncConfig {
   user_uuid?: string;
   poll_interval_seconds: number;
   enabled: number;
-}
-
-interface PlaneSyncMapping {
-  plane_id: string;
-  plane_sequence_id: number;
-  kanbots_number: number;
-  source: 'plane' | 'kanbots';
-  owner?: string;
-  plane_module?: string;
-  repo_name?: string;
-  plane_status?: string;
-  kanbots_status?: string;
-  last_synced_at: string;
 }
 
 export class PlaneSync {
@@ -51,9 +37,8 @@ export class PlaneSync {
     });
 
     console.log('[Plane Sync] Starting synchronization...');
-    await this.syncDown(); // 立即执行一次同步
 
-    // 启动定时轮询
+    await this.syncDown();
     this.startPolling();
   }
 
@@ -71,10 +56,8 @@ export class PlaneSync {
   }
 
   private async loadConfig(): Promise<PlaneSyncConfig | null> {
-    const db = (this.store as any).db as Database;
-    return db
-      .prepare('SELECT * FROM plane_sync_config WHERE id = 1')
-      .get() as PlaneSyncConfig | undefined;
+    const db = (this.store as any).db;
+    return db.prepare('SELECT * FROM plane_sync_config WHERE id = 1').get() as PlaneSyncConfig | undefined | null;
   }
 
   private startPolling(): void {
@@ -86,9 +69,7 @@ export class PlaneSync {
         .then(() => this.updateLastSyncedAt())
         .catch((error) => {
           console.error('[Plane Sync] Poll error:', error);
-          return this.updateLastError(
-            error instanceof Error ? error.message : 'Unknown error'
-          );
+          return this.updateLastError(error instanceof Error ? error.message : 'Unknown error');
         });
     }, intervalMs);
 
@@ -108,7 +89,6 @@ export class PlaneSync {
 
     for (const projectId of projectIds) {
       try {
-        // 获取分配给当前用户的 Work Items
         const workItems = await this.client.listWorkItems(projectId, {
           assignees: this.config.user_uuid ? [this.config.user_uuid] : [],
         });
@@ -122,107 +102,87 @@ export class PlaneSync {
     }
   }
 
-  private async syncWorkItemToKanbots(workItem: PlaneWorkItem): Promise<void> {
-    const db = (this.store as any).db as Database;
+  async syncWorkItemToKanbots(workItem: PlaneWorkItem): Promise<void> {
+    if (!this.client || !this.config) return;
 
-    // 检查是否已存在映射
-    const existing = db
-      .prepare('SELECT * FROM plane_sync_mapping WHERE plane_id = ?')
-      .get(workItem.id) as PlaneSyncMapping | undefined;
+    const db = (this.store as any).db;
+    let issue = db.localIssues.findByPlaneWorkItemId(workItem.id);
 
-    if (existing) {
-      // 更新现有 Issue
-      await this.updateKanbotsIssue(existing.kanbots_number, workItem);
-      this.updateMapping(workItem.id, existing.kanbots_number, workItem);
-    } else {
-      // 创建新 Issue
-      const newIssue = await this.createKanbotsIssue(workItem);
-      this.createMapping(workItem.id, newIssue.number, workItem);
+    if (!issue) {
+      console.log('[Plane Sync] Creating new Kanbots issue for Plane item:', workItem.sequence_id);
+
+      const newIssue = await this.issueSource.createIssue({
+        title: workItem.name,
+        body: htmlToMarkdown(workItem.description_html),
+        labels: [
+          `plane-seq-${workItem.sequence_id}`,
+          workItem.priority !== 'none' ? `priority:${workItem.priority}` : undefined,
+          ...(workItem.labels || []),
+        ].filter(Boolean)
+      });
+
+      db.localIssues.setPlaneWorkItemId(newIssue.number, workItem.id);
+      issue = newIssue;
+      console.log('[Plane Sync] Created Kanbots issue:', newIssue.number, '← Plane:', workItem.sequence_id);
     }
-  }
 
-  private async createKanbotsIssue(workItem: PlaneWorkItem): Promise<Issue> {
-    // 将 HTML 描述转换为 Markdown
-    const body = htmlToMarkdown(workItem.description_html);
-
-    // 提取 labels
-    const labels = [
-      `plane-seq-${workItem.sequence_id}`,
-      workItem.priority !== 'none' ? `priority:${workItem.priority}` : undefined,
-      ...(workItem.labels || []),
-    ].filter(Boolean) as string[];
-
-    return this.issueSource.createIssue({
+    await this.issueSource.updateIssue(issue.number, {
       title: workItem.name,
-      body,
-      labels,
-    });
-  }
-
-  private async updateKanbotsIssue(
-    issueNumber: number,
-    workItem: PlaneWorkItem
-  ): Promise<void> {
-    const body = htmlToMarkdown(workItem.description_html);
-
-    await this.issueSource.updateIssue(issueNumber, {
-      title: workItem.name,
-      body,
+      body: htmlToMarkdown(workItem.description_html),
     });
   }
 
   async onIssueCreated(issue: Issue): Promise<void> {
     if (!this.client || !this.config) return;
 
-    // 检查是否有 plane-sync 标签
-    if (!issue.labels.includes('plane-sync')) {
+    const db = (this.store as any).db;
+    const planeWorkItemId = db.localIssues.getPlaneWorkItemId(issue.number);
+
+    const projectId = this.getFirstProjectId();
+    if (!projectId) {
+      console.error('[Plane Sync] No project configured');
       return;
     }
 
-    console.log('[Plane Sync] Issue created in Kanbots, syncing to Plane...');
-
-    try {
-      const projectId = this.getFirstProjectId();
-      if (!projectId) {
-        console.error('[Plane Sync] No project configured');
-        return;
-      }
-
+    if (planeWorkItemId) {
+      await this.client.updateWorkItem(projectId, planeWorkItemId, {
+        name: issue.title,
+        description_html: markdownToHtml(issue.body || ''),
+      });
+      console.log('[Plane Sync] Updated Plane work item:', planeWorkItemId);
+    } else {
       const workItem = await this.client.createWorkItem(projectId, {
         name: issue.title,
         description_html: markdownToHtml(issue.body || ''),
         priority: 'none',
       });
 
-      // 创建映射
-      this.createMapping(workItem.id, issue.number, workItem);
-
-      console.log('[Plane Sync] Created Plane work item:', workItem.id, workItem.sequence_id);
-    } catch (error) {
-      console.error('[Plane Sync] Error creating work item:', error);
+      db.localIssues.setPlaneWorkItemId(issue.number, workItem.id);
+      console.log('[Plane Sync] Created Plane work item:', workItem.sequence_id);
     }
   }
 
   async onAgentComplete(run: any, store: Store): Promise<void> {
     if (!this.client || !this.config) return;
 
-    // 获取对应的 Plane Issue
-    const db = (store as any).db as Database;
-    const mapping = db
-      .prepare('SELECT * FROM plane_sync_mapping WHERE kanbots_number = ?')
-      .get(run.issueNumber) as PlaneSyncMapping | undefined;
+    const db = (store as any).db;
+    const planeWorkItemId = db.localIssues.getPlaneWorkItemId(run.issueNumber);
 
-    if (!mapping) return;
+    if (!planeWorkItemId) {
+      console.log('[Plane Sync] No Plane mapping found for issue:', run.issueNumber);
+      return;
+    }
 
     try {
       const comment = this.generateAgentReportComment(run);
       const projectId = this.getFirstProjectId();
+
       if (!projectId) {
         console.error('[Plane Sync] No project configured');
         return;
       }
 
-      await this.client.addComment(projectId, mapping.plane_id, {
+      await this.client.addComment(projectId, planeWorkItemId, {
         html: comment,
       });
 
@@ -230,6 +190,17 @@ export class PlaneSync {
     } catch (error) {
       console.error('[Plane Sync] Error reporting agent completion:', error);
     }
+  }
+
+  private async updateLastSyncedAt(): Promise<void> {
+    const db = (this.store as any).db;
+    const now = new Date().toISOString();
+    db.prepare('UPDATE plane_sync_config SET last_synced_at = ? WHERE id = 1').run(now);
+  }
+
+  private async updateLastError(error: string): Promise<void> {
+    const db = (this.store as any).db;
+    db.prepare('UPDATE plane_sync_config SET last_error = ? WHERE id = 1').run(error);
   }
 
   private generateAgentReportComment(run: any): string {
@@ -249,54 +220,10 @@ export class PlaneSync {
 </table>
     `.trim();
   }
-
-  private createMapping(
-    planeId: string,
-    kanbotsNumber: number,
-    workItem: PlaneWorkItem
-  ): void {
-    const db = (this.store as any).db as Database;
-    const now = new Date().toISOString();
-
-    db.prepare(`
-      INSERT OR REPLACE INTO plane_sync_mapping
-      (plane_id, plane_sequence_id, kanbots_number, source, plane_status, kanbots_status, last_synced_at)
-      VALUES (?, ?, ?, 'kanbots', ?, ?, ?)
-    `).run(planeId, workItem.sequence_id, kanbotsNumber, 'todo', 'open', now);
-  }
-
-  private updateMapping(
-    planeId: string,
-    kanbotsNumber: number,
-    workItem: PlaneWorkItem
-  ): void {
-    const db = (this.store as any).db as Database;
-    const now = new Date().toISOString();
-
-    db.prepare(`
-      UPDATE plane_sync_mapping
-      SET plane_status = ?, last_synced_at = ?
-      WHERE plane_id = ? AND kanbots_number = ?
-    `).run('in-progress', now, planeId, kanbotsNumber);
-  }
-
-  private async updateLastSyncedAt(): Promise<void> {
-    const db = (this.store as any).db as Database;
-    const now = new Date().toISOString();
-
-    db.prepare('UPDATE plane_sync_config SET last_synced_at = ? WHERE id = 1').run(now);
-  }
-
-  private async updateLastError(error: string): Promise<void> {
-    const db = (this.store as any).db as Database;
-
-    db.prepare('UPDATE plane_sync_config SET last_error = ? WHERE id = 1').run(error);
-  }
 }
 
 function htmlToMarkdown(html: string): string {
   if (!html) return '';
-  // 一次性替换所有 HTML 标签，避免多次遍历
   return html
     .replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1')
     .replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1')
@@ -313,7 +240,6 @@ function htmlToMarkdown(html: string): string {
 
 function markdownToHtml(markdown: string): string {
   if (!markdown) return '<p></p>';
-  // 按照优先级顺序替换，避免重复处理
   return markdown
     .replace(/^### (.*$)/gim, '<h3>$1</h3>')
     .replace(/^## (.*$)/gim, '<h2>$1</h2>')

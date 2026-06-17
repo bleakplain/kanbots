@@ -11,7 +11,7 @@ import { PlaneClient, PlaneClientError } from '../src/plane-client.js';
 // 从环境变量读取配置，如果不存在则使用默认值
 function getPlaneConfig() {
   const apiUrl = process.env.PLANE_API_URL || 'http://localhost:8000';
-  const apiKey = process.env.PLANE_API_KEY || 'plane_api_2358afef7f6447ef9c123bd057ae5f56';
+  const apiKey = process.env.PLANE_API_KEY || 'plane_api_b3599f4843454fb3afd3b666d5a8a324';
   const workspaceSlug = process.env.PLANE_WORKSPACE_SLUG || 'embedding';
   const projectIds = process.env.PLANE_PROJECT_IDS
     ? JSON.parse(process.env.PLANE_PROJECT_IDS)
