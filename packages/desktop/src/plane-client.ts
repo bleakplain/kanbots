@@ -1,19 +1,41 @@
+export interface PlaneProject {
+  id: string;
+  name: string;
+  identifier: string;
+  description: string;
+  workspace: string;
+  project_lead: string | null;
+  created_at: number;
+  updated_at: number;
+  created_by: string;
+  updated_by: string;
+}
+
 export interface PlaneWorkItem {
   id: string;
   name: string;
   description_html: string;
-  description_stripped: string;
+  description_binary?: string | null;
+  description_stripped?: string;
   sequence_id: number;
-  state: string;
+  state: string; // state ID
+  state_id?: string; // state ID (alternate field)
   priority: 'none' | 'urgent' | 'high' | 'medium' | 'low';
-  assignees: string[];
-  labels: string[];
-  module?: string;
-  project: string;
-  workspace: string;
+  assignees: string[]; // user IDs
+  labels: string[]; // label IDs
+  module_id?: string | null; // module ID (not module name)
+  module?: string; // module name (if available)
+  project: string; // project ID
+  workspace: string; // workspace ID
   created_at: string;
   updated_at: string;
-  completed_at?: string;
+  completed_at?: string | null;
+  start_date?: string | null;
+  target_date?: string | null;
+  parent?: string | null; // parent work item ID
+  type_id?: string | null;
+  estimate_point?: number | null;
+  sort_order?: number;
 }
 
 export interface PlaneCreateWorkItemInput {
@@ -34,20 +56,12 @@ export interface PlaneCommentInput {
 
 export interface PlaneWorkspaceMember {
   id: string;
-  name: string;
-  identifier: string;
-  workspace: string;
-}
-
-export interface PlaneWorkspaceMember {
-  id: string;
-  user_id: string;
-  member_id: string;
-  user: {
-    first_name: string;
-    last_name: string;
-    email: string;
-  };
+  first_name: string;
+  last_name: string;
+  email: string;
+  avatar: string;
+  avatar_url: string | null;
+  display_name: string;
   role: number;
 }
 
@@ -93,7 +107,7 @@ export class PlaneClient {
         ...options,
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': this.apiKey,
+          'X-Api-Key': this.apiKey,
           ...options?.headers,
         },
       });
@@ -119,14 +133,14 @@ export class PlaneClient {
   }
 
   async getWorkspaceMembers(): Promise<PlaneWorkspaceMember[]> {
-    return this.request<{ results: PlaneWorkspaceMember[] }>(
-      `/api/workspaces/${this.workspaceSlug}/workspace-members/`
-    ).then(data => data.results);
+    return this.request<PlaneWorkspaceMember[]>(
+      `/api/v1/workspaces/${this.workspaceSlug}/members/`
+    );
   }
 
   async getProjects(): Promise<PlaneProject[]> {
     return this.request<{ results: PlaneProject[] }>(
-      `/api/workspaces/${this.workspaceSlug}/projects/`
+      `/api/v1/workspaces/${this.workspaceSlug}/projects/`
     ).then(data => data.results);
   }
 
@@ -135,7 +149,7 @@ export class PlaneClient {
     input: PlaneCreateWorkItemInput
   ): Promise<PlaneWorkItem> {
     return this.request<PlaneWorkItem>(
-      `/api/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/`,
+      `/api/v1/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/`,
       {
         method: 'POST',
         body: JSON.stringify(input),
@@ -145,7 +159,7 @@ export class PlaneClient {
 
   async getWorkItem(projectId: string, workItemId: string): Promise<PlaneWorkItem> {
     return this.request<PlaneWorkItem>(
-      `/api/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${workItemId}/`
+      `/api/v1/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${workItemId}/`
     );
   }
 
@@ -155,7 +169,7 @@ export class PlaneClient {
     updates: Partial<Omit<PlaneCreateWorkItemInput, 'project_id'>>
   ): Promise<PlaneWorkItem> {
     return this.request<PlaneWorkItem>(
-      `/api/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${workItemId}/`,
+      `/api/v1/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${workItemId}/`,
       {
         method: 'PATCH',
         body: JSON.stringify(updates),
@@ -169,7 +183,7 @@ export class PlaneClient {
     comment: PlaneCommentInput
   ): Promise<any> {
     return this.request(
-      `/api/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${workItemId}/comments/`,
+      `/api/v1/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${workItemId}/comments/`,
       {
         method: 'POST',
         body: JSON.stringify(comment),
@@ -202,14 +216,14 @@ export class PlaneClient {
     }
 
     const queryString = params.toString();
-    const endpoint = `/api/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${queryString ? `?${queryString}` : ''}`;
+    const endpoint = `/api/v1/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${queryString ? `?${queryString}` : ''}`;
 
     return this.request<{ results: PlaneWorkItem[] }>(endpoint).then(data => data.results);
   }
 
   async searchWorkItems(query: string): Promise<PlaneWorkItem[]> {
     return this.request<{ results: PlaneWorkItem[] }>(
-      `/api/workspaces/${this.workspaceSlug}/search/work-items/?q=${encodeURIComponent(query)}`
+      `/api/v1/workspaces/${this.workspaceSlug}/search/work-items/?q=${encodeURIComponent(query)}`
     ).then(data => data.results);
   }
 }

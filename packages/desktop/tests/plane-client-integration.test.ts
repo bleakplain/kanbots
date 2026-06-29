@@ -58,8 +58,8 @@ describe('Plane Client 真实 API 集成测试 (只读)', () => {
 
       if (members.length > 0) {
         console.log('成员示例:', members.slice(0, 2).map(m => ({
-          email: m.user.email,
-          first_name: m.user.first_name,
+          email: m.email,
+          first_name: m.first_name,
           role: m.role,
         })));
       }
@@ -171,10 +171,9 @@ describe('Plane Client 真实 API 集成测试 (只读)', () => {
       if (members.length > 0) {
         const member = members[0];
         expect(member).toHaveProperty('id');
-        expect(member).toHaveProperty('user_id');
-        expect(member).toHaveProperty('user');
-        expect(member.user).toHaveProperty('email');
-        expect(member.user).toHaveProperty('first_name');
+        expect(member).toHaveProperty('email');
+        expect(member).toHaveProperty('first_name');
+        expect(member).toHaveProperty('role');
         console.log('✅ 成员数据结构正确');
       }
     });

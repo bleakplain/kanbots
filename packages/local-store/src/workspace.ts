@@ -64,6 +64,32 @@ interface WorkspaceConfigCommon {
    * default Gemini invocation. Capped at WORKSPACE_SCRIPT_MAX_BYTES.
    */
   acpCommand?: string;
+  /**
+   * Plane同步配置，用于集成Plane项目管理工具
+   */
+  planeSync?: PlaneSyncConfig;
+}
+
+/**
+ * Plane同步配置接口
+ */
+export interface PlaneSyncConfig {
+  /** 是否启用Plane同步 */
+  enabled: boolean;
+  /** Plane API地址 */
+  apiUrl: string;
+  /** Plane API密钥 */
+  apiKey: string;
+  /** Plane工作空间标识 */
+  workspaceSlug: string;
+  /** Plane项目ID列表 */
+  projectIds: string[];
+  /** 当前用户在Plane中的UUID */
+  userUuid?: string;
+  /** Module名称到仓库名称的映射 */
+  moduleRepoMap: Record<string, string>;
+  /** 轮询间隔（秒） */
+  pollIntervalSeconds: number;
 }
 
 export const HOUSE_RULES_MAX_BYTES = 8 * 1024;

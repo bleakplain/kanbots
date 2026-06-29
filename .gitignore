@@ -1,29 +1,57 @@
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Build outputs
 dist/
 release/
-.kanbots/
-.vite/
-.cache/
-coverage/
-claude-code-main/
-claude-code-main.zip
-
-*.log
+out/
+build/
 *.tsbuildinfo
 
-.DS_Store
+# Core dumps - Electron编译缓存文件
+core-*
+!core-*/README.md
+
+# Cache directories
+.vite/
+.cache/
+.turbo/
+
+# Testing
+coverage/
+.nyc_output/
+*.log
+
+# Environment files
 .env
 .env.local
 .env.*.local
+.env.*.local.*.bak
 
+# Kanbots specific
+.kanbots/
+
+# IDE
+.DS_Store
 .idea/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+!.vscode/tasks.json
+
+# Claude Code
+claude-code-main/
+claude-code-main.zip
 codex-main.zip
 codex-main/
+
+# Project specific
 design_plan/
-
 docs/monetization.md
-
 .tasks/
+
+# OS files
+Thumbs.db
+.Spotlight-V100
+.Trashes

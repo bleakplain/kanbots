@@ -21,7 +21,8 @@ export const migration: Migration = {
     CREATE TABLE plane_sync_config (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       api_url TEXT NOT NULL DEFAULT 'http://localhost:8000',
-      api_key TEXT,
+      api_key_encrypted BLOB,
+      api_key_encryption TEXT NOT NULL DEFAULT 'plain',
       workspace_slug TEXT NOT NULL,
       project_ids TEXT NOT NULL DEFAULT '[]',
       user_uuid TEXT,

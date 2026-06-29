@@ -532,9 +532,10 @@ async function openWorkspaceInternal(repoPath: string): Promise<ActiveWorkspaceI
 
   try {
     const rawSource = await buildSource(config, store);
-    source = wrapNotifyingSource(rawSource);
-    // 初始化 Plane Sync（在包装后，可以正确触发同步）
-    planeSync = new PlaneSync(store, source);
+    // 初始化 Plane Sync
+    planeSync = new PlaneSync(store, rawSource);
+    // 包装source，传入planeSync以启用上行同步
+    source = wrapNotifyingSource(rawSource, planeSync);
   } catch (err) {
     dbWatcher.stop();
     store.close();
@@ -1246,6 +1247,39 @@ function registerIpc(): void {
 
   ipcMain.handle('kanbots:claude-auth-status', async (): Promise<{ authed: boolean }> => {
     return { authed: await isClaudeAuthenticated() };
+  });
+
+  ipcMain.handle('plane-sync:get-status', async (): Promise<{
+    enabled: boolean;
+    configured: boolean;
+    lastSyncedAt: string | null;
+    lastError: string | null;
+  }> => {
+    const workspace = activeWorkspace;
+    if (!workspace?.planeSync) {
+      return { enabled: false, configured: false, lastSyncedAt: null, lastError: null };
+    }
+    return workspace.planeSync.getStatus();
+  });
+
+  ipcMain.handle('plane-sync:update-config', async (_event, updates: Record<string, unknown>): Promise<void> => {
+    const workspace = activeWorkspace;
+    if (!workspace?.planeSync) {
+      throw new Error('No active workspace or Plane sync not available');
+    }
+    await workspace.planeSync.updateConfig(updates);
+  });
+
+  ipcMain.handle('plane-sync:test-connection', async (_event, params?: {
+    apiUrl?: string;
+    apiKey?: string;
+    workspaceSlug?: string;
+  }): Promise<{ success: boolean; error?: string }> => {
+    const workspace = activeWorkspace;
+    if (!workspace?.planeSync) {
+      return { success: false, error: 'Plane sync not available' };
+    }
+    return workspace.planeSync.testConnection(params?.apiUrl, params?.apiKey, params?.workspaceSlug);
   });
 
   ipcMain.handle(

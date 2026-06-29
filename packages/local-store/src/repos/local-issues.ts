@@ -254,8 +254,7 @@ export class LocalIssuesRepo {
 
   getPlaneWorkItemId(number: number): string | null {
     const row = this.db.prepare('SELECT plane_workitem_id FROM local_issues WHERE number = ?').get(number) as
-      | { plane_workitem_id: string | null }
-      | undefined;
+      { plane_workitem_id: string | null } | undefined;
     return row?.plane_workitem_id ?? null;
   }
 }

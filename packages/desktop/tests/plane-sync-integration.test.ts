@@ -14,7 +14,7 @@ import type { Issue } from '@kanbots/core';
 // 从环境变量读取 Plane 配置
 function getPlaneConfig() {
   const apiUrl = process.env.PLANE_API_URL || 'http://localhost:8000';
-  const apiKey = process.env.PLANE_API_KEY || 'plane_api_b3599f4843454fb3afd3b666d5a8a324';
+  const apiKey = process.env.PLANE_API_KEY || 'plane_api_429ecdb05def478e8fb428eabbbf9b75';
   const workspaceSlug = process.env.PLANE_WORKSPACE_SLUG || 'embedding';
   const projectIds = process.env.PLANE_PROJECT_IDS
     ? JSON.parse(process.env.PLANE_PROJECT_IDS)
