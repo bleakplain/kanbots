@@ -86,8 +86,6 @@ export interface PlaneSyncConfig {
   projectIds: string[];
   /** 当前用户在Plane中的UUID */
   userUuid?: string;
-  /** Module名称到仓库名称的映射 */
-  moduleRepoMap: Record<string, string>;
   /** 轮询间隔（秒） */
   pollIntervalSeconds: number;
 }

@@ -6,14 +6,12 @@ import { join } from 'node:path';
 
 interface PlaneSyncConfig {
   api_url: string;
-  api_key_encrypted: Buffer | null;
-  api_key_encryption: string;
+  api_key: string;
   workspace_slug: string;
   project_ids: string[];
   user_uuid?: string;
   poll_interval_seconds: number;
   enabled: number;
-  moduleRepoMap?: Record<string, string>;
 }
 
 export class PlaneSync {
@@ -26,10 +24,7 @@ export class PlaneSync {
     private issueSource: IssueSource
   ) {}
 
-  /**
-   * 获取当前配置状态
-   */
-  getStatus(): { enabled: boolean; configured: boolean; lastSyncedAt: string | null; lastError: string | null } {
+  getSyncStatus(): { enabled: boolean; configured: boolean; lastSyncedAt: string | null; lastError: string | null } {
     const db = (this.store as any).db;
     const config = db.prepare('SELECT enabled, last_synced_at, last_error FROM plane_sync_config WHERE id = 1').get() as any;
 
@@ -45,9 +40,6 @@ export class PlaneSync {
     };
   }
 
-  /**
-   * 更新配置
-   */
   async updateConfig(updates: Partial<PlaneSyncConfig>): Promise<void> {
     const db = (this.store as any).db;
 
@@ -59,8 +51,8 @@ export class PlaneSync {
       values.push(updates.api_url);
     }
 
-    if (updates.apiKey !== undefined) {
-      await this.setApiKey(updates.apiKey);
+    if (updates.api_key !== undefined) {
+      await this.setApiKey(updates.api_key);
     }
 
     if (updates.workspace_slug !== undefined) {
@@ -95,10 +87,9 @@ export class PlaneSync {
 
       db.prepare(`UPDATE plane_sync_config SET ${fields.join(', ')} WHERE id = 1`).run(...values);
 
-      // 如果启用了同步且当前未运行，重新启动
       if (updates.enabled && !this.pollInterval) {
         await this.start();
-      } else if (updates.enabled === false && this.pollInterval) {
+      } else if (!updates.enabled && this.pollInterval) {
         this.stop();
       }
 
@@ -106,9 +97,6 @@ export class PlaneSync {
     }
   }
 
-  /**
-   * 测试API连接
-   */
   async testConnection(apiUrl?: string, apiKey?: string, workspaceSlug?: string): Promise<{ success: boolean; error?: string }> {
     try {
       const testUrl = apiUrl || this.config?.api_url;
@@ -160,7 +148,7 @@ export class PlaneSync {
     console.log('[Plane Sync] Projects:', config.project_ids);
     console.log('[Plane Sync] Poll interval:', config.poll_interval_seconds, 'seconds');
 
-    await this.syncDown();
+    await this.syncDownstream();
     this.startPolling();
   }
 
@@ -172,10 +160,6 @@ export class PlaneSync {
     console.log('[Plane Sync] Stopped');
   }
 
-  /**
-   * 设置API Key并加密存储
-   * @param apiKey Plain text API key
-   */
   async setApiKey(apiKey: string): Promise<void> {
     let encryptedKey: Buffer;
     let encryptionType: string;
@@ -203,9 +187,6 @@ export class PlaneSync {
     console.log('[Plane Sync] API key updated and encrypted');
   }
 
-  /**
-   * 获取解密后的API Key
-   */
   private async getDecryptedApiKey(): Promise<string> {
     const db = (this.store as any).db;
     const config = db.prepare('SELECT api_key_encrypted, api_key_encryption FROM plane_sync_config WHERE id = 1').get() as any;
@@ -237,7 +218,6 @@ export class PlaneSync {
 
     if (!rawConfig) return null;
 
-    // 解析JSON字段
     const config: PlaneSyncConfig = {
       ...rawConfig,
       project_ids: typeof rawConfig.project_ids === 'string'
@@ -245,33 +225,8 @@ export class PlaneSync {
         : rawConfig.project_ids,
     };
 
-    try {
-      const workspaceConfig = await this.loadWorkspaceConfig();
-      if (workspaceConfig?.planeSync?.moduleRepoMap) {
-        console.log('[Plane Sync] Loaded moduleRepoMap from workspace config:', Object.keys(workspaceConfig.planeSync.moduleRepoMap));
-        return { ...config, moduleRepoMap: workspaceConfig.planeSync.moduleRepoMap };
-      }
-    } catch (error) {
-      console.warn('[Plane Sync] Failed to load workspace config:', error);
-    }
-
-    // 如果没有找到workspace配置，返回空映射
-    return { ...config, moduleRepoMap: {} };
-  }
-
-  /**
-   * 加载workspace配置
-   */
-  private async loadWorkspaceConfig(): Promise<{ planeSync?: { moduleRepoMap: Record<string, string> } } | null> {
-    try {
-      const workspacePath = process.cwd();
-      const configPath = join(workspacePath, '.kanbots', 'config.json');
-      const { readFile } = await import('node:fs/promises');
-      const configContent = await readFile(configPath, 'utf-8');
-      return JSON.parse(configContent);
-    } catch (error) {
-      return null;
-    }
+    console.log('[Plane Sync] ✅ 零配置模式：使用 Plane Module 自然属性');
+    return config;
   }
 
   private startPolling(): void {
@@ -283,11 +238,15 @@ export class PlaneSync {
     const intervalMs = baseInterval + jitter;
 
     this.pollInterval = setInterval(() => {
-      this.syncDown()
-        .then(() => this.syncMissingUpstream()) // 同步遗漏的Issues
+      this.syncUpstream().catch((error) => {
+        console.error('[Plane Sync] Push error:', error);
+        return this.updateLastError(error instanceof Error ? error.message : 'Unknown error');
+      });
+
+      this.syncDownstream()
         .then(() => this.updateLastSyncedAt())
         .catch((error) => {
-          console.error('[Plane Sync] Poll error:', error);
+          console.error('[Plane Sync] Pull error:', error);
           return this.updateLastError(error instanceof Error ? error.message : 'Unknown error');
         });
     }, intervalMs);
@@ -295,7 +254,7 @@ export class PlaneSync {
     console.log(`[Plane Sync] Polling every ${this.config.poll_interval_seconds}s (downstream + missing upstream sync)`);
   }
 
-  private async syncDown(): Promise<void> {
+  private async syncDownstream(): Promise<void> {
     if (!this.client || !this.config) return;
 
     console.log('[Plane Sync] Running down sync...');
@@ -337,8 +296,8 @@ export class PlaneSync {
     if (!issue) {
       console.log('[Plane Sync] Creating new Kanbots issue for Plane item:', workItem.sequence_id);
 
-      // 使用module_id而不是module字符串
-      const repoName = this.resolveRepoFromModule(workItem.module_id);
+      // 零配置：智能解析仓库名称
+      const repoName = this.resolveRepoName(workItem);
       console.log('[Plane Sync] Target repository:', repoName);
 
       // 构建标签列表
@@ -353,8 +312,10 @@ export class PlaneSync {
       if (workItem.priority !== 'none') {
         labels.push(`priority:${workItem.priority}`);
       }
-      if (workItem.module_id) {
-        labels.push(`module-id:${workItem.module_id}`);
+
+      // 如果有模块名称，添加原始模块名作为参考
+      if (workItem.module) {
+        labels.push(`plane-module:${workItem.module}`);
       }
 
       // 转换HTML描述为Markdown
@@ -385,25 +346,44 @@ export class PlaneSync {
   }
 
   /**
-   * 根据Plane Module ID解析对应的仓库名称
-   * @param moduleId Plane Module ID
-   * @returns 仓库名称，如果未配置则返回默认仓库
+   * 智能解析仓库名称 - 零配置方案
+   * 使用 Plane 的自然属性：标签 > Module 名称
+   * @param workItem Plane Work Item
+   * @returns 标准化的仓库名称
    */
-  private resolveRepoFromModule(moduleId: string | null | undefined): string {
-    if (!moduleId || !this.config?.moduleRepoMap) {
-      return 'default-repo';
-    }
-
-    // 从配置中查找Module ID映射
-    if (moduleId in this.config.moduleRepoMap) {
-      const repoName = this.config.moduleRepoMap[moduleId];
-      console.log('[Plane Sync] Mapped module ID:', moduleId, '→ repo:', repoName);
+  private resolveRepoName(workItem: PlaneWorkItem): string {
+    // 1. 优先使用标签中的仓库信息（用户可以精确控制）
+    const repoLabel = workItem.labels.find(label => label.startsWith('repo:'));
+    if (repoLabel) {
+      const repoName = repoLabel.replace('repo:', '');
+      console.log(`[Plane Sync] 🏷️  从标签解析仓库: ${repoName}`);
       return repoName;
     }
 
-    // 如果没有找到映射，返回默认仓库
-    console.warn('[Plane Sync] No repo mapping found for module ID:', moduleId, ', using default repo');
+    // 2. 使用 Module 名称（Plane 的自然属性）
+    if (workItem.module) {
+      const repoName = this.normalizeRepoName(workItem.module);
+      console.log(`[Plane Sync] 📦 从模块解析仓库: ${workItem.module} → ${repoName}`);
+      return repoName;
+    }
+
+    // 3. 终极降级
+    console.warn('[Plane Sync] ⚠️  无法从模块解析仓库名，使用默认仓库');
     return 'default-repo';
+  }
+
+  /**
+   * 标准化仓库名称
+   * @param name 原始名称（Module 或 Project 名称）
+   * @returns 标准化的仓库名称
+   */
+  private normalizeRepoName(name: string): string {
+    return name
+      .toLowerCase()                    // 转小写
+      .replace(/[^a-z0-9\s-]/g, '')    // 移除特殊字符
+      .replace(/\s+/g, '-')             // 空格转横线
+      .replace(/-+/g, '-')              // 多个横线合并
+      .trim();                          // 去除首尾空格
   }
 
   async onIssueCreated(issue: Issue): Promise<void> {
@@ -415,9 +395,11 @@ export class PlaneSync {
       return;
     }
 
-    // 从Issue labels中提取仓库信息，反向查找Module
+    // 零配置：从 Issue 标签中提取仓库信息
     const repoLabel = issue.labels.find(label => label.startsWith('repo:'));
-    const moduleName = repoLabel ? this.findModuleByRepo(repoLabel.replace('repo:', '')) : undefined;
+    const repoName = repoLabel ? repoLabel.replace('repo:', '') : 'default-repo';
+
+    console.log(`[Plane Sync] 📤 上行同步到仓库: ${repoName}`);
 
     const planeWorkItemId = this.store.localIssues.getPlaneWorkItemId(issue.number);
 
@@ -426,7 +408,6 @@ export class PlaneSync {
         await this.client.updateWorkItem(projectId, planeWorkItemId, {
           name: issue.title,
           description_html: markdownToHtml(issue.body || ''),
-          ...(moduleName && { module_id: moduleName }),
         });
         console.log('[Plane Sync] Updated Plane work item:', planeWorkItemId);
       } else {
@@ -434,7 +415,6 @@ export class PlaneSync {
           name: issue.title,
           description_html: markdownToHtml(issue.body || ''),
           priority: 'none',
-          ...(moduleName && { module_id: moduleName }),
         });
 
         this.store.localIssues.setPlaneWorkItemId(issue.number, workItem.id);
@@ -446,9 +426,6 @@ export class PlaneSync {
     }
   }
 
-  /**
-   * 获取所有未同步的Issues（没有plane_workitem_id的）
-   */
   private getUnsyncedIssues(): Issue[] {
     try {
       const db = (this.store as any).db;
@@ -476,18 +453,15 @@ export class PlaneSync {
     }
   }
 
-  /**
-   * 主动同步所有遗漏的Issues
-   */
-  async syncMissingUpstream(): Promise<void> {
+  async syncUpstream(): Promise<void> {
     if (!this.client || !this.config) return;
 
     const unsyncedIssues = this.getUnsyncedIssues();
-    if (unssyncedIssues.length === 0) {
+    if (unsyncedIssues.length === 0) {
       return;
     }
 
-    console.log(`[Plane Sync] Found ${unssyncedIssues.length} unsynced issues, starting upstream sync`);
+    console.log(`[Plane Sync] Found ${unsyncedIssues.length} unsynced issues, starting upstream sync`);
 
     for (const issue of unsyncedIssues) {
       try {

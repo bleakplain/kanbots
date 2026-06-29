@@ -11,6 +11,13 @@ export interface PlaneProject {
   updated_by: string;
 }
 
+export interface PlaneModule {
+  id: string;
+  name: string;
+  project: string;
+  workspace: string;
+}
+
 export interface PlaneWorkItem {
   id: string;
   name: string;
@@ -23,8 +30,9 @@ export interface PlaneWorkItem {
   priority: 'none' | 'urgent' | 'high' | 'medium' | 'low';
   assignees: string[]; // user IDs
   labels: string[]; // label IDs
-  module_id?: string | null; // module ID (not module name)
-  module?: string; // module name (if available)
+  modules: PlaneModule[]; // modules array from Plane API - NEW!
+  module_id?: string | null; // module ID (legacy, for compatibility)
+  module?: string; // module name (derived from modules[0].name for backward compatibility)
   project: string; // project ID
   workspace: string; // workspace ID
   created_at: string;
@@ -132,6 +140,17 @@ export class PlaneClient {
     }
   }
 
+  /**
+   * Normalize work item by extracting module name from modules array for backward compatibility
+   * @private
+   */
+  private normalizeWorkItemModule<T extends PlaneWorkItem>(item: T): T {
+    return {
+      ...item,
+      module: item.modules?.[0]?.name || null,
+    };
+  }
+
   async getWorkspaceMembers(): Promise<PlaneWorkspaceMember[]> {
     return this.request<PlaneWorkspaceMember[]>(
       `/api/v1/workspaces/${this.workspaceSlug}/members/`
@@ -148,19 +167,21 @@ export class PlaneClient {
     projectId: string,
     input: PlaneCreateWorkItemInput
   ): Promise<PlaneWorkItem> {
-    return this.request<PlaneWorkItem>(
+    const item = await this.request<PlaneWorkItem>(
       `/api/v1/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/`,
       {
         method: 'POST',
         body: JSON.stringify(input),
       }
     );
+    return this.normalizeWorkItemModule(item);
   }
 
   async getWorkItem(projectId: string, workItemId: string): Promise<PlaneWorkItem> {
-    return this.request<PlaneWorkItem>(
+    const item = await this.request<PlaneWorkItem>(
       `/api/v1/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${workItemId}/`
     );
+    return this.normalizeWorkItemModule(item);
   }
 
   async updateWorkItem(
@@ -168,13 +189,14 @@ export class PlaneClient {
     workItemId: string,
     updates: Partial<Omit<PlaneCreateWorkItemInput, 'project_id'>>
   ): Promise<PlaneWorkItem> {
-    return this.request<PlaneWorkItem>(
+    const item = await this.request<PlaneWorkItem>(
       `/api/v1/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${workItemId}/`,
       {
         method: 'PATCH',
         body: JSON.stringify(updates),
       }
     );
+    return this.normalizeWorkItemModule(item);
   }
 
   async addComment(
@@ -218,12 +240,14 @@ export class PlaneClient {
     const queryString = params.toString();
     const endpoint = `/api/v1/workspaces/${this.workspaceSlug}/projects/${projectId}/work-items/${queryString ? `?${queryString}` : ''}`;
 
-    return this.request<{ results: PlaneWorkItem[] }>(endpoint).then(data => data.results);
+    const response = await this.request<{ results: PlaneWorkItem[] }>(endpoint);
+    return response.results.map(item => this.normalizeWorkItemModule(item));
   }
 
   async searchWorkItems(query: string): Promise<PlaneWorkItem[]> {
-    return this.request<{ results: PlaneWorkItem[] }>(
+    const response = await this.request<{ results: PlaneWorkItem[] }>(
       `/api/v1/workspaces/${this.workspaceSlug}/search/work-items/?q=${encodeURIComponent(query)}`
-    ).then(data => data.results);
+    );
+    return response.results.map(item => this.normalizeWorkItemModule(item));
   }
 }
